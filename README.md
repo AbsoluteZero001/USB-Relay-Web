@@ -1,9 +1,16 @@
 # USB-Relay-Web
+运行在 Windows 本机上的 USB 继电器 Web 控制系统，采用 Vue 3 + TypeScript + FastAPI + PySerial 构建。浏览器中的 Vue 3 Dashboard 通过 REST API 调用 FastAPI，服务层通过 PySerial 打开 CH340 串口，并使用已经实机验证的 LCUS-1 HEX 指令控制 1 路继电器。
 
-运行在 Windows 本机上的 USB 继电器 Web 控制系统。浏览器中的 Vue 3 Dashboard 调用 FastAPI，服务层通过 PySerial 打开 CH340 串口，并使用已经实机验证的 LCUS-1 HEX 指令控制 1 路继电器。
+目前项目已完成第三阶段，实现了从 Web Dashboard → FastAPI → RelayService → SerialService → PySerial → CH340 → LCUS-1 → 继电器的真实硬件控制闭环。在此基础上增加了串口生命周期状态机、健康检查、内存操作审计、前端日志视图、统一错误处理以及自动化测试，并针对 Windows 本机环境进行了实际硬件验证。
 
-项目当前完成第三阶段：在真实硬件控制闭环上，增加串口生命周期状态机、健康检查、内存操作审计、前端日志视图和交付级错误处理。仍不包含登录、数据库、权限、WebSocket、Docker 或云端控制。
+已实机验证 Relay 1 的 ON/OFF 控制指令：
 
+A0 01 01 A2 — Relay 1 ON
+A0 01 00 A1 — Relay 1 OFF
+
+需要说明的是，LCUS-1 当前未验证可用的继电器状态回读协议，因此页面中的继电器状态仅表示软件最后一次成功发送的 ON/OFF 命令，不代表硬件实际状态。
+
+本项目定位为 Windows 本机硬件控制工具，当前不包含用户登录、数据库、Redis、权限系统、WebSocket、Docker、云端控制、多设备管理、自动重连及定时任务等功能。
 ## 技术栈
 
 - 前端：Vue 3、TypeScript、Vite、Axios、Element Plus
