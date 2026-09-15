@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
@@ -13,7 +13,7 @@ from app.services.relay_service import RelayService
 
 router = APIRouter(prefix="/relay", tags=["relay"])
 
-ERROR_RESPONSES = {
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     404: {"model": ApiError, "description": "串口不存在"},
     409: {"model": ApiError, "description": "连接冲突或串口未连接"},
     502: {"model": ApiError, "description": "串口通信失败"},

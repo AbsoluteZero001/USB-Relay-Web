@@ -91,3 +91,11 @@ LCUS-1 当前验证的功能是接收控制指令，没有验证硬件状态回�
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+在仓库根目录执行 Pyright：
+
+```powershell
+npx --yes pyright@latest
+```
+
+根目录 `pyrightconfig.json` 已设置源码路径、虚拟环境和 Python 版本。

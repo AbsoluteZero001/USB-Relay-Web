@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any
 
 import pytest
 import serial
@@ -177,7 +178,7 @@ def test_failed_command_writes_structured_log(
     assert "设备可能已拔出" in payload["detail"]
 
 
-def _command_log_payload(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
+def _command_log_payload(caplog: pytest.LogCaptureFixture) -> dict[str, Any]:
     record = next(
         record
         for record in caplog.records

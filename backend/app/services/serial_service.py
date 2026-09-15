@@ -1,7 +1,7 @@
 import logging
 import threading
 from collections.abc import Callable, Iterable
-from typing import Protocol
+from typing import Protocol, cast
 
 import serial
 from serial.tools import list_ports
@@ -50,7 +50,11 @@ class SerialService:
         port_lister: PortLister | None = None,
     ) -> None:
         self._settings = settings or get_settings()
-        self._serial_factory = serial_factory or serial.Serial
+        self._serial_factory: SerialFactory = (
+            serial_factory
+            if serial_factory is not None
+            else cast(SerialFactory, serial.Serial)
+        )
         self._port_lister = port_lister or list_ports.comports
         self._serial: SerialConnection | None = None
         self._connected_port: str | None = None

@@ -97,18 +97,28 @@ class FakeSerialFactory:
         self.write_delay = write_delay
         self.instances: list[FakeSerial] = []
 
-    def __call__(self, **kwargs: object) -> FakeSerial:
+    def __call__(
+        self,
+        *,
+        port: str,
+        baudrate: int,
+        bytesize: int,
+        parity: str,
+        stopbits: int,
+        timeout: float,
+        write_timeout: float,
+    ) -> FakeSerial:
         if self.open_error is not None:
             raise self.open_error
 
         instance = FakeSerial(
-            port=str(kwargs["port"]),
-            baudrate=int(kwargs["baudrate"]),
-            bytesize=int(kwargs["bytesize"]),
-            parity=str(kwargs["parity"]),
-            stopbits=int(kwargs["stopbits"]),
-            timeout=float(kwargs["timeout"]),
-            write_timeout=float(kwargs["write_timeout"]),
+            port=port,
+            baudrate=baudrate,
+            bytesize=bytesize,
+            parity=parity,
+            stopbits=stopbits,
+            timeout=timeout,
+            write_timeout=write_timeout,
             write_error=self.write_error,
             write_delay=self.write_delay,
         )
@@ -123,11 +133,29 @@ class BlockingSerialFactory:
         self.connect_started = threading.Event()
         self.release_connect = threading.Event()
 
-    def __call__(self, **kwargs: object) -> FakeSerial:
+    def __call__(
+        self,
+        *,
+        port: str,
+        baudrate: int,
+        bytesize: int,
+        parity: str,
+        stopbits: int,
+        timeout: float,
+        write_timeout: float,
+    ) -> FakeSerial:
         self.connect_started.set()
         if not self.release_connect.wait(timeout=2):
             raise TimeoutError("test did not release serial connection")
-        return self.delegate(**kwargs)
+        return self.delegate(
+            port=port,
+            baudrate=baudrate,
+            bytesize=bytesize,
+            parity=parity,
+            stopbits=stopbits,
+            timeout=timeout,
+            write_timeout=write_timeout,
+        )
 
 
 def fake_port_lister() -> list[FakePortInfo]:

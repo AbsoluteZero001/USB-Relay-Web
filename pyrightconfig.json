@@ -1,0 +1,22 @@
+{
+  "include": [
+    "backend/app",
+    "backend/tests"
+  ],
+  "exclude": [
+    "backend/.venv",
+    "frontend/node_modules",
+    "frontend/dist"
+  ],
+  "extraPaths": [
+    "backend"
+  ],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportMissingModuleSource": "warning",
+  "reportMissingTypeStubs": "none",
+  "reportUnusedImport": "warning"
+}

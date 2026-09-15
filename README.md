@@ -276,8 +276,19 @@ cd D:\GitHub\USB-Relay-Web\backend
 
 ```powershell
 cd D:\GitHub\USB-Relay-Web\frontend
+npm run typecheck
 npm run build
 ```
+
+Python 静态检查在仓库根目录执行：
+
+```powershell
+npx --yes pyright@latest
+```
+
+根目录的 `pyrightconfig.json` 已将 `backend` 配置为源码根，并关联
+`backend/.venv`。IDE 如仍显示旧诊断，请将 Python 解释器切换为
+`D:\GitHub\USB-Relay-Web\backend\.venv\Scripts\python.exe`，然后重启语言服务器。
 
 ## Windows 使用注意事项
 
