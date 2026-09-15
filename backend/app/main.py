@@ -74,6 +74,24 @@ def create_app(
             content=ApiError(detail=exc.message, code=exc.code).model_dump(),
         )
 
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        logger.exception(
+            "未处理异常: %s %s",
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=500,
+            content=ApiError(
+                detail="后端发生内部错误，请查看服务日志",
+                code="INTERNAL_SERVER_ERROR",
+            ).model_dump(),
+        )
+
     @app.get("/", include_in_schema=False)
     def root() -> dict[str, str]:
         return {

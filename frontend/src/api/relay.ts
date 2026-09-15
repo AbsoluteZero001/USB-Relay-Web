@@ -5,9 +5,11 @@ export type RelayStateSource = "software_last_command" | "unknown";
 
 export interface SerialPortInfo {
   port: string;
+  device: string;
   description: string;
   manufacturer: string | null;
   hwid: string | null;
+  is_current: boolean;
 }
 
 export interface RelayStatus {

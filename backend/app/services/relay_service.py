@@ -1,5 +1,7 @@
+import json
 import logging
 import threading
+from datetime import datetime, timezone
 
 from app.models.relay import RelayActionResponse, RelayState, RelayStatus
 from app.services.exceptions import RelayStateUnknownError, ServiceError
@@ -21,9 +23,24 @@ class RelayService:
 
     def connect(self, port: str) -> RelayStatus:
         with self._lock:
+            normalized_port = port.strip()
+            current_port = self._serial_service.connected_port
+            if current_port == normalized_port and current_port is not None:
+                logger.info("串口 %s 已连接，重复连接请求直接返回", current_port)
+                return self.get_status()
+
+            if current_port is not None:
+                logger.info(
+                    "正在从串口 %s 安全切换到 %s",
+                    current_port,
+                    normalized_port,
+                )
+                self._serial_service.disconnect()
+                self._relay_state = "unknown"
+
             self._serial_service.connect(port)
             self._relay_state = "unknown"
-            logger.info("继电器控制器已连接: %s", port)
+            logger.info("继电器控制器已连接: %s", normalized_port)
             return self.get_status()
 
     def disconnect(self) -> RelayStatus:
@@ -37,14 +54,14 @@ class RelayService:
         return self._execute(
             command=RELAY_ON_COMMAND,
             target_state="on",
-            action_name="打开",
+            action_name="ON",
         )
 
     def off(self) -> RelayActionResponse:
         return self._execute(
             command=RELAY_OFF_COMMAND,
             target_state="off",
-            action_name="关闭",
+            action_name="OFF",
         )
 
     def toggle(self) -> RelayActionResponse:
@@ -82,12 +99,20 @@ class RelayService:
         action_name: str,
     ) -> RelayActionResponse:
         with self._lock:
+            port = self._serial_service.connected_port
             try:
                 self._serial_service.write(command)
                 self._relay_state = target_state
-            except ServiceError:
+            except ServiceError as exc:
                 self._relay_state = "unknown"
                 logger.exception("继电器%s指令发送失败", action_name)
+                _log_command_event(
+                    action=action_name,
+                    command=command,
+                    port=port,
+                    success=False,
+                    error_code=exc.code,
+                )
                 raise
 
             command_text = command.hex(" ").upper()
@@ -96,9 +121,41 @@ class RelayService:
                 action_name,
                 command_text,
             )
+            _log_command_event(
+                action=action_name,
+                command=command,
+                port=port,
+                success=True,
+            )
             return RelayActionResponse(
                 success=True,
-                message=f"Relay 1 已发送{action_name}指令",
+                message=f"Relay 1 {action_name} 指令发送成功",
                 command=command_text,
                 status=self.get_status(),
             )
+
+
+def _log_command_event(
+    *,
+    action: str,
+    command: bytes,
+    port: str | None,
+    success: bool,
+    error_code: str | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "relay_command",
+        "action": action,
+        "command": f"RELAY_{action}",
+        "command_hex": command.hex(" ").upper(),
+        "port": port,
+        "result": "success" if success else "failed",
+        "success": success,
+    }
+    if error_code is not None:
+        payload["error_code"] = error_code
+    logger.info(
+        "relay_command %s",
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+    )

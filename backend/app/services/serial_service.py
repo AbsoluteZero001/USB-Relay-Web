@@ -57,20 +57,29 @@ class SerialService:
         self._lock = threading.RLock()
 
     def list_ports(self) -> list[SerialPortInfo]:
+        current_port = self.connected_port
         try:
             discovered = self._port_lister()
-            ports = [
-                SerialPortInfo(
-                    port=str(getattr(item, "device")),
-                    description=str(getattr(item, "description", "") or ""),
-                    manufacturer=_optional_string(item, "manufacturer"),
-                    hwid=_optional_string(item, "hwid"),
+            ports = []
+            for item in discovered:
+                port = str(getattr(item, "device"))
+                ports.append(
+                    SerialPortInfo(
+                        port=port,
+                        device=port,
+                        description=str(
+                            getattr(item, "description", "") or ""
+                        ),
+                        manufacturer=_optional_string(item, "manufacturer"),
+                        hwid=_optional_string(item, "hwid"),
+                        is_current=port == current_port,
+                    )
                 )
-                for item in discovered
-            ]
         except Exception as exc:
             logger.exception("串口扫描失败")
-            raise SerialPortScanError(f"串口扫描失败: {exc}") from exc
+            raise SerialPortScanError(
+                "串口扫描失败，请检查 Windows 串口服务后重试"
+            ) from exc
 
         ports.sort(key=lambda item: item.port)
         logger.info(
@@ -106,11 +115,19 @@ class SerialService:
                     connection.open()
             except (serial.SerialException, OSError) as exc:
                 _close_after_failed_connect(connection)
+                logger.warning(
+                    "串口连接失败: %s, error=%s",
+                    normalized_port,
+                    exc,
+                )
                 raise _map_connection_error(normalized_port, exc) from exc
-            except Exception:
+            except Exception as exc:
                 _close_after_failed_connect(connection)
                 logger.exception("连接串口 %s 时发生未知异常", normalized_port)
-                raise
+                raise SerialConnectionError(
+                    f"连接串口 {normalized_port} 失败，"
+                    "请检查 CH340 驱动和设备状态"
+                ) from exc
 
             self._serial = connection
             self._connected_port = normalized_port
@@ -184,7 +201,8 @@ class SerialService:
                 )
                 self._close_current_connection()
                 raise SerialWriteError(
-                    f"串口写入失败，设备可能已拔出或被占用: {exc}"
+                    f"串口 {port or '当前设备'} 写入失败，"
+                    "设备可能已拔出，请重新连接"
                 ) from exc
             except Exception as exc:
                 port = self._connected_port
@@ -194,7 +212,9 @@ class SerialService:
                     data.hex(" ").upper(),
                 )
                 self._close_current_connection()
-                raise SerialWriteError(f"串口写入失败: {exc}") from exc
+                raise SerialWriteError(
+                    f"串口 {port or '当前设备'} 写入失败，请重新连接"
+                ) from exc
 
             logger.info("TX %s", data.hex(" ").upper())
 
@@ -235,7 +255,10 @@ def _map_connection_error(port: str, exc: Exception) -> ServiceError:
             "占用",
         )
     ):
-        return PortBusyError(f"串口 {port} 可能已被其他程序占用: {exc}")
+        return PortBusyError(
+            f"串口 {port} 正在被其他程序占用，"
+            "请关闭 SSCOM 等串口软件后重试"
+        )
     if any(
         token in message
         for token in (
@@ -245,5 +268,9 @@ def _map_connection_error(port: str, exc: Exception) -> ServiceError:
             "找不到",
         )
     ):
-        return PortNotFoundError(f"串口 {port} 不存在或当前不可用: {exc}")
-    return SerialConnectionError(f"连接串口 {port} 失败: {exc}")
+        return PortNotFoundError(
+            f"串口 {port} 不存在，请检查设备连接后刷新串口列表"
+        )
+    return SerialConnectionError(
+        f"连接串口 {port} 失败，请检查 CH340 驱动和设备状态"
+    )

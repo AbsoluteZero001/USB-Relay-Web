@@ -6,7 +6,7 @@ import type { RelayStatus } from "../api/relay";
 
 const props = defineProps<{
   status: RelayStatus;
-  busy: boolean;
+  activeOperation: "on" | "off" | null;
 }>();
 
 const emit = defineEmits<{
@@ -15,6 +15,7 @@ const emit = defineEmits<{
 }>();
 
 const stateLabel = computed(() => props.status.relay_state.toUpperCase());
+const busy = computed(() => props.activeOperation !== null);
 
 const stateTagType = computed<"success" | "danger" | "info">(() => {
   if (props.status.relay_state === "on") {
@@ -44,9 +45,9 @@ const stateTagType = computed<"success" | "danger" | "info">(() => {
       <div>
         <strong>{{ stateLabel }}</strong>
         <p v-if="status.state_source === 'software_last_command'">
-          软件最近一次成功发送
+          状态来源：软件最后一次命令
         </p>
-        <p v-else>硬件未返回状态</p>
+        <p v-else>状态来源：未知</p>
       </div>
     </div>
 
@@ -67,20 +68,22 @@ const stateTagType = computed<"success" | "danger" | "info">(() => {
         size="large"
         :icon="VideoPlay"
         :disabled="!status.connected || busy"
-        :loading="busy"
+        :loading="activeOperation === 'on'"
+        aria-label="打开继电器"
         @click="emit('on')"
       >
-        打开继电器
+        ON
       </el-button>
       <el-button
         type="danger"
         size="large"
         :icon="VideoPause"
         :disabled="!status.connected || busy"
-        :loading="busy"
+        :loading="activeOperation === 'off'"
+        aria-label="关闭继电器"
         @click="emit('off')"
       >
-        关闭继电器
+        OFF
       </el-button>
     </div>
   </section>

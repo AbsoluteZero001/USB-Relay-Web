@@ -42,12 +42,17 @@ def test_ports_connect_on_off_status_flow() -> None:
         ports = client.get("/api/serial/ports")
         assert ports.status_code == 200
         assert ports.json()[0]["port"] == "COM3"
+        assert ports.json()[0]["device"] == "COM3"
         assert ports.json()[0]["description"] == "USB-SERIAL CH340"
+        assert ports.json()[0]["is_current"] is False
 
         connected = client.post("/api/relay/connect", json={"port": "COM3"})
         assert connected.status_code == 200
         assert connected.json()["connected"] is True
         assert connected.json()["relay_state"] == "unknown"
+
+        ports_while_connected = client.get("/api/serial/ports").json()
+        assert ports_while_connected[0]["is_current"] is True
 
         turned_on = client.post("/api/relay/on")
         assert turned_on.status_code == 200
@@ -94,7 +99,63 @@ def test_busy_port_returns_readable_error() -> None:
         response = client.post("/api/relay/connect", json={"port": "COM3"})
 
     assert response.status_code == 409
-    assert response.json()["code"] == "SERIAL_PORT_BUSY"
+    assert response.json() == {
+        "detail": (
+            "串口 COM3 正在被其他程序占用，"
+            "请关闭 SSCOM 等串口软件后重试"
+        ),
+        "code": "SERIAL_PORT_BUSY",
+    }
+    assert "Traceback" not in response.text
+
+
+def test_duplicate_connection_is_idempotent() -> None:
+    factory = FakeSerialFactory()
+    with make_client(factory) as client:
+        client.post("/api/relay/connect", json={"port": "COM3"})
+        response = client.post("/api/relay/connect", json={"port": "COM3"})
+
+    assert response.status_code == 200
+    assert response.json()["connected"] is True
+    assert len(factory.instances) == 1
+
+
+def test_switching_port_releases_previous_connection() -> None:
+    factory = FakeSerialFactory()
+    with make_client(factory) as client:
+        client.post("/api/relay/connect", json={"port": "COM3"})
+        response = client.post("/api/relay/connect", json={"port": "COM5"})
+
+    assert response.status_code == 200
+    assert response.json()["port"] == "COM5"
+    assert factory.instances[0].closed is True
+    assert factory.instances[1].port == "COM5"
+
+
+def test_unhandled_error_returns_structured_error_without_traceback() -> None:
+    app = create_app(
+        settings=Settings(),
+        serial_service=SerialService(
+            Settings(),
+            serial_factory=FakeSerialFactory(),
+            port_lister=fake_port_lister,
+        ),
+    )
+
+    @app.get("/api/test-internal-error", include_in_schema=False)
+    def internal_error() -> None:
+        raise RuntimeError("private failure detail")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/test-internal-error")
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "后端发生内部错误，请查看服务日志",
+        "code": "INTERNAL_SERVER_ERROR",
+    }
+    assert "private failure detail" not in response.text
+    assert "Traceback" not in response.text
 
 
 def test_configured_vite_origin_is_allowed() -> None:

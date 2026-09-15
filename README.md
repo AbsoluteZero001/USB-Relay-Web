@@ -2,7 +2,7 @@
 
 运行在 Windows 本机上的 USB 继电器 Web 控制系统。浏览器中的 Vue 3 Dashboard 调用 FastAPI，服务层通过 PySerial 打开 CH340 串口，并使用已经实机验证的 LCUS-1 HEX 指令控制 1 路继电器。
 
-本项目第一阶段只实现基础框架、串口层、继电器控制核心、基础 API 和最小 Dashboard，不包含登录、数据库、权限、WebSocket、Docker 或云端控制。
+项目当前完成第二阶段：在稳定的串口控制闭环上，补充连接切换、结构化 TX 日志、前端操作状态、错误提示和测试覆盖。仍不包含登录、数据库、权限、WebSocket、Docker 或云端控制。
 
 ## 技术栈
 
@@ -42,6 +42,17 @@ LCUS-1 Relay 1
 - `SerialService` 只管理串口扫描、连接、断开和写入，不包含继电器业务。
 - 写入由 `threading.RLock` 保护，避免并发请求把指令字节交错发送。
 
+## 第二阶段功能
+
+- 串口扫描返回 `port`、`device`、`description`、`manufacturer`、`hwid` 和 `is_current`。
+- 对同一端口重复执行连接是幂等的，不会创建第二个串口对象。
+- 连接另一个端口时，先安全断开旧端口，再尝试打开新端口。
+- ON/OFF 请求分别在本地日志中记录时间、动作、端口、HEX、结果和错误代码。
+- 前端轮询带防重入保护，不会因为请求慢而叠加状态查询。
+- 端口刷新不会自动切换到另一个 COM；原端口消失时会保留明确错误。
+- ON/OFF 各自拥有独立 loading，请求结束或失败后都会恢复按钮。
+- 前端区分未连接、已连接、设备断开和串口异常，并显示结构化最近操作。
+
 ## 已验证硬件与协议
 
 硬件链路：
@@ -80,7 +91,7 @@ LCUS-1 当前没有经过验证的状态回读协议，因此 API 不声称从�
 - `off`：软件最近一次成功发送了 OFF。
 - `unknown`：尚未发送、串口已断开，或最近一次写入失败。
 
-当 `state_source` 为 `software_last_command` 时，响应表示软件记录，不代表硬件确认回读。
+当 `state_source` 为 `software_last_command` 时，响应表示软件记录，不代表硬件确认回读。Dashboard 对这一项的固定文案是“状态来源：软件最后一次命令”。
 
 ## 开发环境
 
@@ -142,24 +153,53 @@ VITE_API_BASE_URL=http://127.0.0.1:8000/api
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/api/serial/ports` | 返回当前串口、描述、制造商和 HWID |
+| `GET` | `/api/serial/ports` | 返回端口、设备、描述、制造商、HWID 和当前连接标记 |
 | `POST` | `/api/relay/connect` | 请求体示例：`{"port":"COM3"}` |
 | `POST` | `/api/relay/disconnect` | 关闭当前串口 |
 | `POST` | `/api/relay/on` | 实际发送 `A0 01 01 A2` |
 | `POST` | `/api/relay/off` | 实际发送 `A0 01 00 A1` |
 | `GET` | `/api/relay/status` | 返回连接、端口及软件状态 |
 
-## 测试真实 COM3 + LCUS-1
+所有业务错误沿用现有统一结构：
 
-1. 关闭 SSCOM、串口助手或其他占用 `COM3` 的程序。
-2. 在 Windows“设备管理器 → 端口”确认设备显示为 `USB-SERIAL CH340 (COM3)`。
-3. 启动后端，打开 Swagger。
-4. 调用 `GET /api/serial/ports`，确认列表中的 `port` 为 `COM3`。
-5. 调用 `POST /api/relay/connect`，请求体使用 `{"port":"COM3"}`，确认返回 `connected=true`。
-6. 调用 `POST /api/relay/on`。预期后端日志出现 `TX A0 01 01 A2`，继电器吸合并亮红灯。
-7. 调用 `POST /api/relay/off`。预期后端日志出现 `TX A0 01 00 A1`，继电器关闭。
-8. 启动前端，在页面中选择 `COM3`，连接后使用“打开继电器”和“关闭继电器”完成相同操作。
-9. 在串口连接时拔掉 USB，再尝试 ON/OFF。后端会返回可读的写入失败信息，清除失联连接，进程不会崩溃。
+```json
+{
+  "detail": "串口 COM3 正在被其他程序占用，请关闭 SSCOM 等串口软件后重试",
+  "code": "SERIAL_PORT_BUSY"
+}
+```
+
+未知后端异常也会转换为稳定的 `INTERNAL_SERVER_ERROR`，不会把 Python traceback 返回给浏览器。
+
+## TX 日志
+
+每次实际执行 ON/OFF 时，后端会输出一行可检索的 JSON 日志：
+
+```text
+relay_command {"timestamp":"2026-09-15T07:02:11.123456+00:00","event":"relay_command","action":"ON","command":"RELAY_ON","command_hex":"A0 01 01 A2","port":"COM3","result":"success","success":true}
+```
+
+失败时额外包含 `error_code`，例如 `SERIAL_WRITE_FAILED`。日志只写本机标准 logging，不引入数据库。
+
+## 真实测试流程
+
+第一次使用 LCUS-1 + CH340 时，按以下顺序操作：
+
+1. 插入 USB 继电器。
+2. 确认 Windows 已安装 CH340 驱动。
+3. 关闭 SSCOM、Arduino 串口监视器及其他串口工具。
+4. 启动 backend。
+5. 启动 frontend。
+6. 打开 Dashboard。
+7. 选择目标端口，当前实机为 `COM3`。
+8. 点击“连接”，确认设备状态显示 `已连接 COM3`。
+9. 点击 `ON`，页面显示发送成功，命令为 `A0 01 01 A2`。
+10. 确认继电器发出“啪”的吸合声。
+11. 确认 Relay 1 LED 状态变化。
+12. 点击 `OFF`，页面显示发送成功，命令为 `A0 01 00 A1`。
+13. 确认继电器释放，LED 恢复关闭状态。
+
+软件当前无法读取 LCUS-1 的真实硬件状态。页面中的 ON/OFF 是“软件最后一次命令”记录，不是硬件回读结果。
 
 也可以使用 PowerShell 调用 API：
 
@@ -179,7 +219,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/relay/off
 
 ```powershell
 cd D:\GitHub\USB-Relay-Web\backend
-python -m pytest
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 前端类型检查和生产构建：
@@ -199,10 +239,22 @@ npm run build
 - 拔掉 USB 后在下次通信时服务会捕获异常并清理失效连接；重新插入设备后需刷新端口并再次连接。
 - 继电器可能连接真实负载。进行接线和通电测试前，应确认负载电压、电流和隔离要求，并遵守设备额定参数。
 
+## 常见错误
+
+| 错误代码 | 原因 | 处理方式 |
+| --- | --- | --- |
+| `SERIAL_PORT_BUSY` | COM 口被 SSCOM 等程序占用 | 关闭占用程序，点击刷新后重新连接 |
+| `SERIAL_PORT_NOT_FOUND` | 设备未插入、驱动异常或 COM 号变化 | 检查设备管理器，刷新串口并重新选择 |
+| `SERIAL_NOT_CONNECTED` | 尚未连接或连接已经释放 | 先连接目标 COM，再执行 ON/OFF |
+| `SERIAL_WRITE_FAILED` | USB 被拔出或串口写入失败 | 检查 USB，刷新端口并重新连接 |
+| `SERIAL_PORT_SCAN_FAILED` | Windows 串口服务或扫描层异常 | 检查系统串口服务并查看后端日志 |
+
+设备在操作中断开后，前端会收到明确错误，后端会清除失效连接；本阶段没有自动重连。
+
 ## 环境变量
 
 后端支持 `USB_RELAY_` 前缀配置，示例见 `backend/.env.example`。硬件通信参数默认值已按实机验证结果设置，不应随意修改。
 
-## 第一阶段边界
+## 第二阶段边界
 
-当前未实现用户登录、数据库、Redis、WebSocket、Docker、权限系统、多设备管理、云端控制、自动重连、定时任务和复杂主题。多路继电器所需的协议级扩展尚未加入，因为当前只验证了 Relay 1 的两条控制指令。
+当前未实现用户登录、数据库、Redis、WebSocket、Docker、权限系统、多设备管理、云端控制、自动重连、定时任务和复杂主题。没有实现硬件状态回读，也没有加入 `FF` 查询、多路协议或未知协议自动探测，因为当前只验证了 Relay 1 的 ON/OFF 两条控制指令。

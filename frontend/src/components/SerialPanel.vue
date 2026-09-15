@@ -4,13 +4,21 @@ import { Connection, Refresh, SwitchButton } from "@element-plus/icons-vue";
 
 import type { SerialPortInfo } from "../api/relay";
 
+type SerialConnectionState =
+  | "disconnected"
+  | "connected"
+  | "device_lost"
+  | "error";
+
 const props = defineProps<{
   ports: SerialPortInfo[];
   selectedPort: string;
   connectedPort: string | null;
   connected: boolean;
-  busy: boolean;
   scanning: boolean;
+  connectionState: SerialConnectionState;
+  connectionMessage: string;
+  activeOperation: "connect" | "disconnect" | null;
 }>();
 
 const emit = defineEmits<{
@@ -24,8 +32,45 @@ const selectedPortInfo = computed(
   () => props.ports.find((port) => port.port === props.selectedPort) ?? null,
 );
 
+const displayPort = computed(
+  () => props.connectedPort || props.selectedPort || "未选择",
+);
+
+const busy = computed(() => props.activeOperation !== null);
+
+const stateLabel = computed(() => {
+  if (props.connectionState === "connected") {
+    return `已连接 ${props.connectedPort ?? ""}`.trim();
+  }
+  if (props.connectionState === "device_lost") {
+    return "设备已断开";
+  }
+  if (props.connectionState === "error") {
+    return "串口异常";
+  }
+  return "未连接";
+});
+
+const stateTagType = computed<"success" | "danger" | "info">(() => {
+  if (props.connectionState === "connected") {
+    return "success";
+  }
+  if (
+    props.connectionState === "device_lost" ||
+    props.connectionState === "error"
+  ) {
+    return "danger";
+  }
+  return "info";
+});
+
 function handlePortChange(value: string): void {
   emit("update:selectedPort", value);
+}
+
+function portLabel(port: SerialPortInfo): string {
+  const current = port.is_current || port.port === props.connectedPort;
+  return `${port.port} · ${port.description}${current ? " · 当前" : ""}`;
 }
 </script>
 
@@ -36,8 +81,8 @@ function handlePortChange(value: string): void {
         <p class="section-label">SERIAL LINK</p>
         <h2>串口连接</h2>
       </div>
-      <el-tag :type="connected ? 'success' : 'info'" effect="dark" size="small">
-        {{ connected ? "已连接" : "未连接" }}
+      <el-tag :type="stateTagType" effect="dark" size="small">
+        {{ stateLabel }}
       </el-tag>
     </header>
 
@@ -56,7 +101,7 @@ function handlePortChange(value: string): void {
           <el-option
             v-for="port in ports"
             :key="port.port"
-            :label="`${port.port} · ${port.description}`"
+            :label="portLabel(port)"
             :value="port.port"
           />
         </el-select>
@@ -64,7 +109,7 @@ function handlePortChange(value: string): void {
           <el-button
             :icon="Refresh"
             :loading="scanning"
-            :disabled="connected || busy"
+            :disabled="busy || scanning"
             aria-label="刷新串口列表"
             @click="emit('refresh')"
           />
@@ -75,17 +120,25 @@ function handlePortChange(value: string): void {
     <dl class="device-meta">
       <div>
         <dt>设备</dt>
-        <dd>{{ selectedPortInfo?.port || "未选择" }}</dd>
+        <dd>{{ displayPort }}</dd>
       </div>
       <div>
         <dt>型号</dt>
         <dd>{{ selectedPortInfo?.description || "—" }}</dd>
       </div>
       <div>
-        <dt>参数</dt>
-        <dd>9600 / 8N1</dd>
+        <dt>波特率</dt>
+        <dd>9600 baud</dd>
       </div>
       <div>
+        <dt>格式</dt>
+        <dd>8N1</dd>
+      </div>
+      <div class="meta-wide">
+        <dt>状态</dt>
+        <dd>{{ connectionMessage }}</dd>
+      </div>
+      <div class="meta-wide">
         <dt>制造商</dt>
         <dd>{{ selectedPortInfo?.manufacturer || "—" }}</dd>
       </div>
@@ -96,7 +149,7 @@ function handlePortChange(value: string): void {
         v-if="!connected"
         type="primary"
         :icon="Connection"
-        :loading="busy"
+        :loading="activeOperation === 'connect'"
         :disabled="!selectedPort"
         @click="emit('connect')"
       >
@@ -105,7 +158,7 @@ function handlePortChange(value: string): void {
       <el-button
         v-else
         :icon="SwitchButton"
-        :loading="busy"
+        :loading="activeOperation === 'disconnect'"
         @click="emit('disconnect')"
       >
         断开

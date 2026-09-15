@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     debug: bool = False
 
-    default_serial_port: str = "COM3"
+    default_serial_port: str | None = None
     serial_baudrate: int = 9600
     serial_timeout: float = 1.0
     serial_write_timeout: float = 2.0
