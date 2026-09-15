@@ -12,13 +12,18 @@ app/
 ├── config.py                   pydantic-settings 配置
 ├── api/
 │   ├── serial.py               串口查询路由
-│   └── relay.py                连接、断开、ON、OFF、状态路由
+│   ├── relay.py                连接、断开、ON、OFF、状态路由
+│   ├── logs.py                 内存审计日志读取与清空
+│   └── health.py               服务健康检查
 ├── models/
 │   ├── serial.py               串口响应模型
-│   └── relay.py                继电器请求、状态、操作和错误模型
+│   ├── relay.py                继电器请求、状态、操作和错误模型
+│   ├── audit.py                审计日志模型
+│   └── health.py               健康检查模型
 └── services/
     ├── serial_service.py       PySerial 生命周期与串行化写入
     ├── relay_service.py        LCUS-1 业务、固定指令和软件状态
+    ├── audit_log_service.py    线程安全的内存日志存储
     └── exceptions.py           可安全映射到 HTTP 的服务异常
 ```
 
@@ -40,11 +45,15 @@ Swagger：<http://127.0.0.1:8000/docs>
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | `GET` | `/api/serial/ports` | 扫描本机串口 |
+| `GET` | `/api/serial/status` | 返回串口状态机快照 |
 | `POST` | `/api/relay/connect` | 连接串口，JSON 示例：`{"port":"COM3"}` |
 | `POST` | `/api/relay/disconnect` | 断开当前串口 |
 | `POST` | `/api/relay/on` | 发送 `A0 01 01 A2` |
 | `POST` | `/api/relay/off` | 发送 `A0 01 00 A1` |
 | `GET` | `/api/relay/status` | 返回连接和软件最近状态 |
+| `GET` | `/api/logs` | 返回分页后的内存操作日志 |
+| `DELETE` | `/api/logs` | 清空内存操作日志 |
+| `GET` | `/api/health` | 返回服务和串口连接状态 |
 
 `GET /api/serial/ports` 返回 `port`、`device`、`description`、`manufacturer`、`hwid` 和 `is_current`。业务异常统一返回 `detail` 与稳定 `code`，未处理异常统一返回 `INTERNAL_SERVER_ERROR`，不会向客户端输出 traceback。
 
@@ -54,6 +63,22 @@ Swagger：<http://127.0.0.1:8000/docs>
 - 连接另一个端口时先释放旧连接，再打开新端口。
 - 写入失败会立即清理失效连接，后续状态返回 `connected=false`。
 - 每次 ON/OFF 都输出结构化 `relay_command` JSON 日志，包含时间、动作、命令、HEX、端口、结果和错误代码。
+- 应用 lifespan 结束时会关闭串口，测试覆盖 shutdown cleanup。
+
+## 串口状态
+
+`SerialService` 维护 `disconnected`、`connecting`、`connected`、`error` 四种状态。`GET /api/serial/status` 返回 `state`、`port`、`device`、`baudrate`、`connected`、`error_code` 和 `detail`。异常写出后会清除串口对象，但保留最近端口用于诊断。
+
+## 内存日志
+
+`AuditLogService` 最多保存 500 条记录，使用时间倒序分页。记录包含 `timestamp`、`action`、`command`、`hex`、`port`、`result`、`error_code` 和 `detail`。日志不会持久化，后端进程退出后清空。
+
+## 安全行为
+
+- 浏览器刷新或关闭不会自动发送 ON。
+- 后端启动时继电器软件状态固定为 `unknown`。
+- 不自动恢复上次 ON 状态，不自动重连。
+- OFF 使用已验证命令 `A0 01 00 A1`，不增加未知查询协议。
 
 ## 状态语义
 

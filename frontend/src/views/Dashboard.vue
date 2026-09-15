@@ -3,27 +3,31 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { WarningFilled } from "@element-plus/icons-vue";
 
 import {
+  clearAuditLogs,
   connectRelay,
   disconnectRelay,
   getApiErrorMessage,
+  getHealth,
   getRelayStatus,
+  getSerialStatus,
+  listAuditLogs,
   listSerialPorts,
   turnRelayOff,
   turnRelayOn,
+  type AuditLogEntry,
   type RelayActionResponse,
   type RelayStatus,
+  type SerialConnectionState,
   type SerialPortInfo,
+  type SerialStatus,
 } from "../api/relay";
+import OperationLog from "../components/OperationLog.vue";
 import RelayCard from "../components/RelayCard.vue";
 import SerialPanel from "../components/SerialPanel.vue";
 
 type ActiveOperation = "connect" | "disconnect" | "on" | "off" | null;
 type OperationStatus = "idle" | "pending" | "success" | "failed";
-type SerialConnectionState =
-  | "disconnected"
-  | "connected"
-  | "device_lost"
-  | "error";
+type UiSerialConnectionState = SerialConnectionState | "device_lost";
 
 interface OperationRecord {
   time: string;
@@ -41,15 +45,29 @@ const emptyRelayStatus: RelayStatus = {
   state_source: "unknown",
 };
 
+const emptySerialStatus: SerialStatus = {
+  state: "disconnected",
+  port: null,
+  device: null,
+  baudrate: 9600,
+  connected: false,
+  error_code: null,
+  detail: null,
+};
+
 const ports = ref<SerialPortInfo[]>([]);
 const selectedPort = ref("");
 const backendOnline = ref(false);
 const scanning = ref(false);
 const activeOperation = ref<ActiveOperation>(null);
-const connectionState = ref<SerialConnectionState>("disconnected");
+const connectionState = ref<UiSerialConnectionState>("disconnected");
 const connectionMessage = ref("未连接");
 const errorMessage = ref("");
 const relayStatus = ref<RelayStatus>({ ...emptyRelayStatus });
+const serialStatus = ref<SerialStatus>({ ...emptySerialStatus });
+const auditLogs = ref<AuditLogEntry[]>([]);
+const logsLoading = ref(false);
+const logsClearing = ref(false);
 const lastOperation = ref<OperationRecord>({
   time: "—",
   target: "—",
@@ -69,6 +87,18 @@ const backendLabel = computed(() => (backendOnline.value ? "在线" : "离线"))
 const backendTagType = computed<"success" | "danger">(() =>
   backendOnline.value ? "success" : "danger",
 );
+const currentPort = computed(
+  () => serialStatus.value.port || selectedPort.value || "—",
+);
+const currentDevice = computed(() => {
+  if (serialStatus.value.device) {
+    return serialStatus.value.device;
+  }
+  return (
+    ports.value.find((port) => port.port === selectedPort.value)?.description ??
+    "—"
+  );
+});
 const operationTagType = computed<"success" | "danger" | "info">(() => {
   if (lastOperation.value.status === "success") {
     return "success";
@@ -115,7 +145,7 @@ function recordOperation(
 function showError(message: string): void {
   errorMessage.value = message;
   connectionState.value = "error";
-  connectionMessage.value = "串口异常";
+  connectionMessage.value = serialStatus.value.detail || "串口异常";
 }
 
 async function loadPorts(): Promise<void> {
@@ -154,36 +184,80 @@ async function loadPorts(): Promise<void> {
   }
 }
 
+async function loadLogs(): Promise<void> {
+  if (logsLoading.value) {
+    return;
+  }
+
+  logsLoading.value = true;
+  try {
+    const page = await listAuditLogs(20, 0);
+    auditLogs.value = page.items;
+    backendOnline.value = true;
+  } catch (error) {
+    backendOnline.value = false;
+    errorMessage.value = getApiErrorMessage(error);
+  } finally {
+    logsLoading.value = false;
+  }
+}
+
+async function clearOperationLogs(): Promise<void> {
+  if (logsClearing.value || auditLogs.value.length === 0) {
+    return;
+  }
+
+  logsClearing.value = true;
+  try {
+    await clearAuditLogs();
+    auditLogs.value = [];
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error);
+  } finally {
+    logsClearing.value = false;
+  }
+}
+
 async function refreshStatus(force = false): Promise<void> {
   if (statusRequestInFlight || (operationInProgress.value && !force)) {
     return;
   }
 
   statusRequestInFlight = true;
-  const previousStatus = relayStatus.value;
   try {
-    const nextStatus = await getRelayStatus();
-    relayStatus.value = nextStatus;
-    backendOnline.value = true;
+    const [health, nextRelayStatus, nextSerialStatus] = await Promise.all([
+      getHealth(),
+      getRelayStatus(),
+      getSerialStatus(),
+    ]);
+    relayStatus.value = nextRelayStatus;
+    serialStatus.value = nextSerialStatus;
+    backendOnline.value = health.status === "ok";
 
-    if (nextStatus.connected) {
+    if (nextSerialStatus.state === "connected") {
       connectionState.value = "connected";
-      connectionMessage.value = `已连接 ${nextStatus.port ?? ""}`.trim();
-    } else if (previousStatus.connected) {
-      connectionState.value = "device_lost";
-      connectionMessage.value = "设备已断开";
-      if (!errorMessage.value) {
-        errorMessage.value =
-          `串口 ${previousStatus.port ?? ""} 已断开，` +
-          "请检查 USB 连接后重新连接";
-      }
-    } else if (connectionState.value !== "error") {
+      connectionMessage.value =
+        `已连接 ${nextSerialStatus.port ?? ""}`.trim();
+    } else if (nextSerialStatus.state === "connecting") {
+      connectionState.value = "connecting";
+      connectionMessage.value = "正在连接串口";
+    } else if (nextSerialStatus.state === "error") {
+      connectionState.value =
+        nextSerialStatus.error_code === "SERIAL_DEVICE_DISCONNECTED"
+          ? "device_lost"
+          : "error";
+      connectionMessage.value =
+        nextSerialStatus.detail || "串口连接异常";
+      errorMessage.value =
+        nextSerialStatus.detail || "串口连接异常，请重新连接";
+    } else {
       connectionState.value = "disconnected";
       connectionMessage.value = "未连接";
     }
   } catch (error) {
     backendOnline.value = false;
     relayStatus.value = { ...emptyRelayStatus };
+    serialStatus.value = { ...emptySerialStatus };
     connectionState.value = "error";
     connectionMessage.value = "后端不可用";
     errorMessage.value = getApiErrorMessage(error);
@@ -209,10 +283,14 @@ async function connect(): Promise<void> {
     connectionMessage.value = `已连接 ${port}`;
     errorMessage.value = "";
     recordOperation("串口设备", "CONNECT", "—", `已连接 ${port}`, "success");
+    await refreshStatus(true);
+    await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
+    await refreshStatus(true);
     showError(message);
     recordOperation("串口设备", "CONNECT", "—", message, "failed");
+    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
@@ -238,10 +316,14 @@ async function disconnect(): Promise<void> {
       `已断开 ${port || "串口"}`,
       "success",
     );
+    await refreshStatus(true);
+    await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
+    await refreshStatus(true);
     showError(message);
     recordOperation("串口设备", "DISCONNECT", "—", message, "failed");
+    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
@@ -273,18 +355,20 @@ async function runRelayAction(
       result.message,
       "success",
     );
+    await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
     recordOperation("Relay 1", actionName, commandHex, message, "failed");
     await refreshStatus(true);
     showError(message);
+    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
 }
 
 onMounted(async () => {
-  await Promise.all([loadPorts(), refreshStatus()]);
+  await Promise.all([loadPorts(), refreshStatus(), loadLogs()]);
   statusTimer = window.setInterval(() => {
     void refreshStatus();
   }, 2500);
@@ -300,15 +384,25 @@ onUnmounted(() => {
 <template>
   <div class="dashboard-shell">
     <header class="topbar">
-      <div>
+      <div class="topbar-title">
         <p class="section-label">LOCAL HARDWARE CONTROL</p>
-        <h1>USB Relay 控制台</h1>
+        <h1>USB Relay Control</h1>
       </div>
-      <div class="backend-state">
-        <span>后端</span>
-        <el-tag :type="backendTagType" effect="dark">
-          {{ backendLabel }}
-        </el-tag>
+      <div class="topbar-summary">
+        <div class="summary-item">
+          <span>当前串口</span>
+          <strong>{{ currentPort }}</strong>
+        </div>
+        <div class="summary-item">
+          <span>当前设备</span>
+          <strong>{{ currentDevice }}</strong>
+        </div>
+        <div class="backend-state">
+          <span>Backend</span>
+          <el-tag :type="backendTagType" effect="dark">
+            {{ backendLabel }}
+          </el-tag>
+        </div>
       </div>
     </header>
 
@@ -385,5 +479,13 @@ onUnmounted(() => {
         </div>
       </dl>
     </section>
+
+    <OperationLog
+      :entries="auditLogs"
+      :loading="logsLoading"
+      :clearing="logsClearing"
+      @refresh="loadLogs"
+      @clear="clearOperationLogs"
+    />
   </div>
 </template>

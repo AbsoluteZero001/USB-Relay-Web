@@ -7,7 +7,7 @@ import serial
 from serial.tools import list_ports
 
 from app.config import Settings, get_settings
-from app.models.serial import SerialPortInfo
+from app.models.serial import SerialConnectionState, SerialPortInfo, SerialStatus
 from app.services.exceptions import (
     PortBusyError,
     PortNotFoundError,
@@ -54,6 +54,10 @@ class SerialService:
         self._port_lister = port_lister or list_ports.comports
         self._serial: SerialConnection | None = None
         self._connected_port: str | None = None
+        self._device_name: str | None = None
+        self._state: SerialConnectionState = "disconnected"
+        self._error_code: str | None = None
+        self._error_detail: str | None = None
         self._lock = threading.RLock()
 
     def list_ports(self) -> list[SerialPortInfo]:
@@ -100,6 +104,12 @@ class SerialService:
                     f"串口 {self._connected_port} 已连接，请先断开"
                 )
 
+            self._state = "connecting"
+            self._connected_port = normalized_port
+            self._device_name = normalized_port
+            self._error_code = None
+            self._error_detail = None
+
             connection: SerialConnection | None = None
             try:
                 connection = self._serial_factory(
@@ -115,22 +125,29 @@ class SerialService:
                     connection.open()
             except (serial.SerialException, OSError) as exc:
                 _close_after_failed_connect(connection)
+                mapped_error = _map_connection_error(normalized_port, exc)
+                self._set_error(mapped_error.code, mapped_error.message)
                 logger.warning(
                     "串口连接失败: %s, error=%s",
                     normalized_port,
                     exc,
                 )
-                raise _map_connection_error(normalized_port, exc) from exc
+                raise mapped_error from exc
             except Exception as exc:
                 _close_after_failed_connect(connection)
                 logger.exception("连接串口 %s 时发生未知异常", normalized_port)
-                raise SerialConnectionError(
+                mapped_error = SerialConnectionError(
                     f"连接串口 {normalized_port} 失败，"
                     "请检查 CH340 驱动和设备状态"
-                ) from exc
+                )
+                self._set_error(mapped_error.code, mapped_error.message)
+                raise mapped_error from exc
 
             self._serial = connection
-            self._connected_port = normalized_port
+            self._state = "connected"
+            self._error_code = None
+            self._error_detail = None
+            self._device_name = self._resolve_device_name(normalized_port)
             logger.info(
                 "串口连接成功: %s, %d / 8N1",
                 normalized_port,
@@ -149,9 +166,19 @@ class SerialService:
                     connection.close()
                 except Exception:
                     logger.exception("关闭串口 %s 时发生异常", port)
+                    self._state = "error"
+                    self._connected_port = port
+                    self._error_code = "SERIAL_CLOSE_FAILED"
+                    self._error_detail = "串口关闭失败，请重试或重新启动后端"
+                    return port
                 else:
                     logger.info("串口已断开: %s", port)
 
+            self._state = "disconnected"
+            self._connected_port = None
+            self._device_name = None
+            self._error_code = None
+            self._error_detail = None
             return port
 
     def is_connected(self) -> bool:
@@ -161,21 +188,53 @@ class SerialService:
 
             try:
                 connected = bool(self._serial.is_open)
-            except Exception:
+            except Exception as exc:
                 logger.exception("读取串口状态失败，已清理连接")
-                self._serial = None
-                self._connected_port = None
+                self._close_current_connection(
+                    error_code="SERIAL_STATUS_READ_FAILED",
+                    detail="读取串口状态失败，连接已失效",
+                    cause=exc,
+                )
                 return False
 
             if not connected:
-                self._serial = None
-                self._connected_port = None
+                self._close_current_connection(
+                    error_code="SERIAL_DEVICE_DISCONNECTED",
+                    detail="USB 串口设备已断开",
+                )
+                return False
+
+            self._state = "connected"
             return connected
 
     @property
     def connected_port(self) -> str | None:
         with self._lock:
             return self._connected_port if self.is_connected() else None
+
+    def get_status(self) -> SerialStatus:
+        if self._state == "connecting":
+            return SerialStatus(
+                state="connecting",
+                port=self._connected_port,
+                device=self._device_name or self._connected_port,
+                baudrate=self._settings.serial_baudrate,
+                connected=False,
+                error_code=None,
+                detail=None,
+            )
+
+        with self._lock:
+            connected = self.is_connected()
+            return SerialStatus(
+                state=self._state,
+                port=self._connected_port,
+                device=self._device_name or self._connected_port,
+                baudrate=self._settings.serial_baudrate,
+                connected=connected,
+                error_code=self._error_code,
+                detail=self._error_detail,
+            )
 
     def write(self, data: bytes) -> None:
         if not isinstance(data, bytes):
@@ -199,11 +258,16 @@ class SerialService:
                     port,
                     data.hex(" ").upper(),
                 )
-                self._close_current_connection()
-                raise SerialWriteError(
+                detail = (
                     f"串口 {port or '当前设备'} 写入失败，"
                     "设备可能已拔出，请重新连接"
-                ) from exc
+                )
+                self._close_current_connection(
+                    error_code="SERIAL_WRITE_FAILED",
+                    detail=detail,
+                    cause=exc,
+                )
+                raise SerialWriteError(detail) from exc
             except Exception as exc:
                 port = self._connected_port
                 logger.exception(
@@ -211,22 +275,54 @@ class SerialService:
                     port,
                     data.hex(" ").upper(),
                 )
-                self._close_current_connection()
-                raise SerialWriteError(
-                    f"串口 {port or '当前设备'} 写入失败，请重新连接"
-                ) from exc
+                detail = f"串口 {port or '当前设备'} 写入失败，请重新连接"
+                self._close_current_connection(
+                    error_code="SERIAL_WRITE_FAILED",
+                    detail=detail,
+                    cause=exc,
+                )
+                raise SerialWriteError(detail) from exc
 
             logger.info("TX %s", data.hex(" ").upper())
 
-    def _close_current_connection(self) -> None:
+    def _set_error(self, code: str, detail: str) -> None:
+        self._state = "error"
+        self._error_code = code
+        self._error_detail = detail
+
+    def _close_current_connection(
+        self,
+        *,
+        error_code: str,
+        detail: str,
+        cause: Exception | None = None,
+    ) -> None:
         connection = self._serial
         self._serial = None
-        self._connected_port = None
+        self._state = "error"
+        self._error_code = error_code
+        self._error_detail = detail
         if connection is not None:
             try:
                 connection.close()
             except Exception:
-                logger.exception("写入失败后关闭串口时发生异常")
+                logger.exception(
+                    "清理失效串口连接时关闭失败",
+                    exc_info=cause,
+                )
+
+    def _resolve_device_name(self, port: str) -> str:
+        try:
+            for item in self._port_lister():
+                if str(getattr(item, "device")) == port:
+                    description = str(
+                        getattr(item, "description", "") or ""
+                    ).strip()
+                    if description:
+                        return description
+        except Exception:
+            logger.warning("读取串口 %s 的设备描述失败", port, exc_info=True)
+        return port
 
 
 def _optional_string(item: object, attribute: str) -> str | None:

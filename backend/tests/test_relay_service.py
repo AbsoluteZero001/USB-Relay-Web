@@ -146,13 +146,13 @@ def test_successful_command_writes_structured_log(caplog: pytest.LogCaptureFixtu
         relay.on()
 
     payload = _command_log_payload(caplog)
-    assert payload["event"] == "relay_command"
     assert payload["action"] == "ON"
     assert payload["command"] == "RELAY_ON"
-    assert payload["command_hex"] == "A0 01 01 A2"
+    assert payload["hex"] == "A0 01 01 A2"
     assert payload["port"] == "COM3"
     assert payload["result"] == "success"
-    assert payload["success"] is True
+    assert payload["error_code"] is None
+    assert payload["detail"] == "Relay 1 ON 指令发送成功"
     assert payload["timestamp"]
 
 
@@ -170,11 +170,11 @@ def test_failed_command_writes_structured_log(
 
     payload = _command_log_payload(caplog)
     assert payload["action"] == "ON"
-    assert payload["command_hex"] == "A0 01 01 A2"
+    assert payload["hex"] == "A0 01 01 A2"
     assert payload["port"] == "COM3"
     assert payload["result"] == "failed"
-    assert payload["success"] is False
     assert payload["error_code"] == "SERIAL_WRITE_FAILED"
+    assert "设备可能已拔出" in payload["detail"]
 
 
 def _command_log_payload(caplog: pytest.LogCaptureFixture) -> dict[str, object]:

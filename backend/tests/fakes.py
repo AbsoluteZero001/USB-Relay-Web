@@ -117,6 +117,19 @@ class FakeSerialFactory:
         return instance
 
 
+class BlockingSerialFactory:
+    def __init__(self, delegate: FakeSerialFactory) -> None:
+        self.delegate = delegate
+        self.connect_started = threading.Event()
+        self.release_connect = threading.Event()
+
+    def __call__(self, **kwargs: object) -> FakeSerial:
+        self.connect_started.set()
+        if not self.release_connect.wait(timeout=2):
+            raise TimeoutError("test did not release serial connection")
+        return self.delegate(**kwargs)
+
+
 def fake_port_lister() -> list[FakePortInfo]:
     return [
         FakePortInfo(

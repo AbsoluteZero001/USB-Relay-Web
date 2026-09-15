@@ -14,6 +14,7 @@ from app.services.exceptions import (
 )
 from app.services.serial_service import SerialService
 from tests.fakes import (
+    BlockingSerialFactory,
     FakeSerialFactory,
     access_denied_error,
     fake_port_lister,
@@ -74,6 +75,55 @@ def test_connect_uses_verified_serial_parameters_and_supports_disconnect() -> No
     assert not service.is_connected()
 
 
+def test_status_tracks_disconnected_connected_and_disconnected_states() -> None:
+    factory = FakeSerialFactory()
+    service = make_serial_service(factory)
+
+    initial = service.get_status()
+    assert initial.state == "disconnected"
+    assert initial.connected is False
+    assert initial.port is None
+    assert initial.device is None
+    assert initial.baudrate == 9600
+
+    service.connect("COM3")
+    connected = service.get_status()
+    assert connected.state == "connected"
+    assert connected.connected is True
+    assert connected.port == "COM3"
+    assert connected.device == "USB-SERIAL CH340"
+
+    service.disconnect()
+    disconnected = service.get_status()
+    assert disconnected.state == "disconnected"
+    assert disconnected.connected is False
+    assert disconnected.port is None
+    assert disconnected.device is None
+
+
+def test_status_exposes_connecting_state_during_slow_connect() -> None:
+    blocking_factory = BlockingSerialFactory(FakeSerialFactory())
+    service = SerialService(
+        Settings(),
+        serial_factory=blocking_factory,
+        port_lister=fake_port_lister,
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(service.connect, "COM3")
+        assert blocking_factory.connect_started.wait(timeout=1)
+
+        connecting = service.get_status()
+        assert connecting.state == "connecting"
+        assert connecting.connected is False
+        assert connecting.port == "COM3"
+
+        blocking_factory.release_connect.set()
+        future.result(timeout=2)
+
+    assert service.get_status().state == "connected"
+
+
 def test_duplicate_connect_is_rejected_without_opening_second_port() -> None:
     factory = FakeSerialFactory()
     service = make_serial_service(factory)
@@ -112,6 +162,10 @@ def test_write_failure_clears_broken_connection() -> None:
 
     assert not service.is_connected()
     assert factory.instances[0].closed
+    status = service.get_status()
+    assert status.state == "error"
+    assert status.error_code == "SERIAL_WRITE_FAILED"
+    assert status.port == "COM3"
 
 
 def test_access_denied_is_mapped_to_busy_port_error() -> None:
@@ -120,6 +174,12 @@ def test_access_denied_is_mapped_to_busy_port_error() -> None:
 
     with pytest.raises(PortBusyError):
         service.connect("COM3")
+
+    status = service.get_status()
+    assert status.state == "error"
+    assert status.connected is False
+    assert status.port == "COM3"
+    assert status.error_code == "SERIAL_PORT_BUSY"
 
 
 def test_missing_port_is_mapped_to_not_found_error() -> None:
@@ -138,6 +198,9 @@ def test_unplugged_device_is_cleared_before_next_write() -> None:
     factory.instances[0].unplug()
 
     assert not service.is_connected()
+    status = service.get_status()
+    assert status.state == "error"
+    assert status.error_code == "SERIAL_DEVICE_DISCONNECTED"
     with pytest.raises(SerialNotConnectedError):
         service.write(bytes.fromhex("A0 01 01 A2"))
 

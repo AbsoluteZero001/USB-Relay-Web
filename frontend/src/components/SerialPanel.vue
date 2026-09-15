@@ -6,6 +6,7 @@ import type { SerialPortInfo } from "../api/relay";
 
 type SerialConnectionState =
   | "disconnected"
+  | "connecting"
   | "connected"
   | "device_lost"
   | "error";
@@ -44,6 +45,9 @@ const stateLabel = computed(() => {
   }
   if (props.connectionState === "device_lost") {
     return "设备已断开";
+  }
+  if (props.connectionState === "connecting") {
+    return "正在连接";
   }
   if (props.connectionState === "error") {
     return "串口异常";

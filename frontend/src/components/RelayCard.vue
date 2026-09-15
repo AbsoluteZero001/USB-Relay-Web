@@ -75,6 +75,7 @@ const stateTagType = computed<"success" | "danger" | "info">(() => {
         ON
       </el-button>
       <el-button
+        class="emergency-off"
         type="danger"
         size="large"
         :icon="VideoPause"
@@ -83,7 +84,7 @@ const stateTagType = computed<"success" | "danger" | "info">(() => {
         aria-label="关闭继电器"
         @click="emit('off')"
       >
-        OFF
+        关闭继电器 / OFF
       </el-button>
     </div>
   </section>

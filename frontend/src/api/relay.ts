@@ -2,6 +2,11 @@ import axios from "axios";
 
 export type RelayState = "on" | "off" | "unknown";
 export type RelayStateSource = "software_last_command" | "unknown";
+export type SerialConnectionState =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "error";
 
 export interface SerialPortInfo {
   port: string;
@@ -24,6 +29,40 @@ export interface RelayActionResponse {
   message: string;
   command: string;
   status: RelayStatus;
+}
+
+export interface SerialStatus {
+  state: SerialConnectionState;
+  port: string | null;
+  device: string | null;
+  baudrate: number;
+  connected: boolean;
+  error_code: string | null;
+  detail: string | null;
+}
+
+export interface HealthResponse {
+  status: "ok";
+  service: string;
+  serial_connected: boolean;
+}
+
+export interface AuditLogEntry {
+  timestamp: string;
+  action: string;
+  command: string | null;
+  hex: string | null;
+  port: string | null;
+  result: "success" | "failed";
+  error_code: string | null;
+  detail: string;
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 interface ApiErrorResponse {
@@ -64,6 +103,31 @@ export async function turnRelayOff(): Promise<RelayActionResponse> {
 
 export async function getRelayStatus(): Promise<RelayStatus> {
   const response = await api.get<RelayStatus>("/relay/status");
+  return response.data;
+}
+
+export async function getSerialStatus(): Promise<SerialStatus> {
+  const response = await api.get<SerialStatus>("/serial/status");
+  return response.data;
+}
+
+export async function getHealth(): Promise<HealthResponse> {
+  const response = await api.get<HealthResponse>("/health");
+  return response.data;
+}
+
+export async function listAuditLogs(
+  limit = 20,
+  offset = 0,
+): Promise<AuditLogPage> {
+  const response = await api.get<AuditLogPage>("/logs", {
+    params: { limit, offset },
+  });
+  return response.data;
+}
+
+export async function clearAuditLogs(): Promise<{ deleted: number }> {
+  const response = await api.delete<{ deleted: number }>("/logs");
   return response.data;
 }
 
