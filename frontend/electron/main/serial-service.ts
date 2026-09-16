@@ -60,7 +60,7 @@ export class SerialService extends EventEmitter {
   async listPorts(): Promise<SerialPortInfo[]> {
     const ports = await SerialPort.list();
     const currentPath = this.currentPath;
-    return ports.map((p) => {
+    const mapped = ports.map((p) => {
       const { description, manufacturer } = describePort(p);
       const vid = toHex4(p.vendorId);
       const pid = toHex4(p.productId);
@@ -77,10 +77,38 @@ export class SerialService extends EventEmitter {
         is_current: currentPath === p.path,
       };
     });
+
+    if (
+      currentPath &&
+      !mapped.some((port) => port.port === currentPath)
+    ) {
+      mapped.push({
+        port: currentPath,
+        device: `${currentPath} · 当前串口`,
+        description: "当前串口",
+        manufacturer: null,
+        hwid: null,
+        vendorId: null,
+        productId: null,
+        serialNumber: null,
+        is_current: true,
+      });
+    }
+
+    return mapped;
   }
 
   connect(portId: string, options: SerialOpenOptions): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (
+        this.port &&
+        this.state === "connected" &&
+        this.currentPath === portId
+      ) {
+        resolve();
+        return;
+      }
+
       if (this.port) {
         this.port.close(() => {
           this.port = null;
@@ -124,10 +152,16 @@ export class SerialService extends EventEmitter {
         });
 
         port.on("close", () => {
+          if (this.port !== port) {
+            return;
+          }
           this.handleClose("设备已断开");
         });
 
         port.on("error", (err) => {
+          if (this.port !== port) {
+            return;
+          }
           this.handleClose(err.message || "串口错误");
         });
 
@@ -205,6 +239,7 @@ export class SerialService extends EventEmitter {
     this.errorCode = "SERIAL_DEVICE_DISCONNECTED";
     this.errorDetail = detail;
     this.port = null;
+    this.currentPath = null;
     this.emitStatus();
   }
 

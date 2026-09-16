@@ -199,7 +199,11 @@ async function autoConnectDetectedPort(port: string): Promise<void> {
   ) {
     return;
   }
-  if (relayStatus.value.connected && relayStatus.value.port === port) {
+  const connectedPort = relayStatus.value.port ?? serialStatus.value.port;
+  if (
+    (relayStatus.value.connected || serialStatus.value.connected) &&
+    connectedPort === port
+  ) {
     return;
   }
   if (Date.now() - autoConnectLastFailureAt < AUTO_CONNECT_RETRY_MS) {
