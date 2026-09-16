@@ -209,11 +209,13 @@ export class SerialService extends EventEmitter {
       }
       this.port.write(Buffer.from(data), (err) => {
         if (err) {
+          this.handleClose("串口写入失败，设备可能已拔出");
           reject(new Error("串口写入失败，设备可能已拔出"));
           return;
         }
         this.port?.drain((drainErr) => {
           if (drainErr) {
+            this.handleClose("串口写入失败，设备可能已拔出");
             reject(new Error("串口写入失败"));
             return;
           }

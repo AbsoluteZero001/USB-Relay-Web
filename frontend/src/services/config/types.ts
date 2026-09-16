@@ -4,13 +4,6 @@ import { DEFAULT_DEVICE_RULES } from "../device-rules";
 
 export type ProtocolMode = "custom_hex";
 
-export interface StatusQueryConfig {
-  enabled: boolean;
-  command: number[];
-  polling: boolean;
-  pollIntervalMs: number;
-}
-
 export interface RelayConfig {
   protocol: ProtocolMode;
   channels: number;
@@ -18,7 +11,6 @@ export interface RelayConfig {
   onCommand: number[];
   offCommand: number[];
   serial: SerialOpenOptions;
-  statusQuery: StatusQueryConfig;
 }
 
 export interface AppConfig {
@@ -50,12 +42,6 @@ export const DEFAULT_CONFIG: AppConfig = {
       stopBits: 1,
       parity: "none",
       flowControl: "none",
-    },
-    statusQuery: {
-      enabled: false,
-      command: [],
-      polling: false,
-      pollIntervalMs: 1000,
     },
   },
   deviceRules: DEFAULT_DEVICE_RULES,

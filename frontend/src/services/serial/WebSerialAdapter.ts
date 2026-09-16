@@ -59,6 +59,7 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
   private listeners = new Set<(data: Uint8Array) => void>();
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private readLoopAbort: AbortController | null = null;
+  private readLoopPromise: Promise<void> | null = null;
 
   isSupported(): boolean {
     return typeof navigator !== "undefined" && "serial" in navigator;
@@ -97,9 +98,7 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
     }
     try {
       // Prefer CH340 (LCUS-1 relay), but allow any serial device.
-      const port = await navigator.serial.requestPort({
-        filters: [{ usbVendorId: 0x1a86 }],
-      });
+      const port = await navigator.serial.requestPort();
       const ports = await navigator.serial.getPorts();
       const index = ports.indexOf(port);
       const info = port.getInfo();
@@ -175,7 +174,7 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
   }
 
   async disconnect(): Promise<void> {
-    this.stopReadLoop();
+    await this.stopReadLoop();
     if (this.port) {
       try {
         await this.port.close();
@@ -200,6 +199,9 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
     }
     try {
       await writer.write(data);
+    } catch (error) {
+      this.handleDisconnect(error);
+      throw error;
     } finally {
       writer.releaseLock();
     }
@@ -232,7 +234,7 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
     this.readLoopAbort = new AbortController();
     const signal = this.readLoopAbort.signal;
 
-    const loop = async () => {
+    const loop = async (): Promise<void> => {
       while (this.port && this.port.readable && !signal.aborted) {
         this.reader = this.port.readable.getReader();
         try {
@@ -258,20 +260,30 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
         }
       }
     };
-    loop();
+    this.readLoopPromise = loop().finally(() => {
+      this.readLoopPromise = null;
+    });
   }
 
-  private stopReadLoop(): void {
+  private async stopReadLoop(): Promise<void> {
     this.readLoopAbort?.abort();
-    this.readLoopAbort = null;
-    if (this.reader) {
+    const reader = this.reader;
+    if (reader) {
       try {
-        this.reader.releaseLock();
+        await reader.cancel();
       } catch {
-        // ignore
+        // The stream may already be closed after a device disconnect.
       }
-      this.reader = null;
     }
+    if (this.readLoopPromise) {
+      try {
+        await this.readLoopPromise;
+      } catch {
+        // Read-loop cleanup is best-effort during disconnect.
+      }
+    }
+    this.readLoopAbort = null;
+    this.reader = null;
   }
 
   private handleDisconnect(error: unknown): void {

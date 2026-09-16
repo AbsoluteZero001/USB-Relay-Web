@@ -263,7 +263,7 @@ async function refreshStatus(): Promise<void> {
     ]);
     relayStatus.value = nextRelayStatus;
     applySerialStatus(nextSerialStatus);
-    webSerialSupported.value = health.status === "ok";
+    webSerialSupported.value = health.serial_supported;
   } catch (error) {
     relayStatus.value = { ...emptyRelayStatus };
     serialStatus.value = { ...emptySerialStatus };
@@ -370,7 +370,9 @@ onBeforeUnmount(() => {
         <div>
           <p class="section-label">本地硬件控制</p>
           <h1>USB 继电器控制台</h1>
-          <p class="topbar-subtitle">浏览器串口控制 · 无需后端服务</p>
+          <p class="topbar-subtitle">
+            Web / 桌面串口控制 · 无需独立后端服务
+          </p>
         </div>
       </div>
       <div class="topbar-summary">
@@ -383,7 +385,7 @@ onBeforeUnmount(() => {
           <strong>{{ currentDevice }}</strong>
         </div>
         <div class="backend-state">
-          <span>浏览器串口</span>
+          <span>串口服务</span>
           <el-tag :type="serialTagType" effect="dark">
             {{ serialLabel }}
           </el-tag>
@@ -411,9 +413,10 @@ onBeforeUnmount(() => {
     <section v-if="!webSerialSupported" class="error-banner" role="alert">
       <WarningFilled class="error-icon" />
       <div>
-        <strong>浏览器不支持 Web Serial API</strong>
+        <strong>当前环境不支持串口控制</strong>
         <p>
-          请使用 Chrome 或 Edge (89+)，并通过 https 或 localhost 访问本页面。
+          Web 版请使用 Chrome 或 Edge 89+ 并通过 https 或 localhost
+          访问；Windows 用户建议使用桌面版安装包。
         </p>
       </div>
     </section>

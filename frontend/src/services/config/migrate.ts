@@ -4,7 +4,6 @@ import type {
   AppConfig,
   ProtocolMode,
   RelayConfig,
-  StatusQueryConfig,
 } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 import type {
@@ -114,31 +113,6 @@ function normalizeProtocol(value: unknown): ProtocolMode {
   return value === "custom_hex" ? value : "custom_hex";
 }
 
-function normalizeStatusQuery(
-  relaySource: JsonRecord,
-  legacySource: JsonRecord,
-): StatusQueryConfig {
-  const raw = isRecord(relaySource.statusQuery)
-    ? relaySource.statusQuery
-    : isRecord(legacySource.statusQuery)
-      ? legacySource.statusQuery
-      : {};
-  const command =
-    tryParseHexBytes(raw.command as string | number[] | undefined, {
-      allowEmpty: true,
-    }) ?? [];
-
-  return {
-    enabled: readBoolean(raw.enabled, false),
-    command,
-    polling: readBoolean(raw.polling, false),
-    pollIntervalMs: Math.max(
-      200,
-      readNumber(raw.pollIntervalMs, 1000),
-    ),
-  };
-}
-
 function normalizeRelayConfig(
   relaySource: JsonRecord,
   legacySource: JsonRecord,
@@ -190,7 +164,6 @@ function normalizeRelayConfig(
     onCommand,
     offCommand,
     serial: normalizeSerialOptions(relaySource, legacySource),
-    statusQuery: normalizeStatusQuery(relaySource, legacySource),
   };
 }
 

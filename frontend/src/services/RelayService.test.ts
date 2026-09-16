@@ -14,8 +14,10 @@ class FakeAdapter implements SerialAdapter {
   readonly writes: number[][] = [];
   private connected = false;
 
+  constructor(private readonly supported = true) {}
+
   isSupported(): boolean {
-    return true;
+    return this.supported;
   }
 
   async listPorts(): Promise<SerialPortInfo[]> {
@@ -66,5 +68,23 @@ describe("RelayService LCUS-1 compatibility", () => {
       [0xa0, 0x01, 0x01, 0xa2],
       [0xa0, 0x01, 0x00, 0xa1],
     ]);
+  });
+
+  it("reports runtime serial support separately from connection state", () => {
+    const unsupported = new RelayService(
+      new FakeAdapter(false),
+      DEFAULT_CONFIG.relay,
+    );
+    const supported = new RelayService(
+      new FakeAdapter(true),
+      DEFAULT_CONFIG.relay,
+    );
+
+    expect(unsupported.getHealth()).toMatchObject({
+      status: "ok",
+      serial_connected: false,
+      serial_supported: false,
+    });
+    expect(supported.getHealth().serial_supported).toBe(true);
   });
 });

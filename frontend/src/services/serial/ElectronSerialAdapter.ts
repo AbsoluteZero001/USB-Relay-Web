@@ -44,10 +44,20 @@ export class ElectronSerialAdapter implements SerialAdapter {
 
   async disconnect(): Promise<void> {
     await this.api.disconnect();
+    this.cachedStatus = await this.api.getStatus();
   }
 
   async send(data: Uint8Array): Promise<void> {
-    await this.api.send(Array.from(data));
+    try {
+      await this.api.send(Array.from(data));
+    } catch (error) {
+      try {
+        this.cachedStatus = await this.api.getStatus();
+      } catch {
+        // Preserve the original write error if the status refresh fails.
+      }
+      throw error;
+    }
   }
 
   onData(callback: (data: Uint8Array) => void): () => void {

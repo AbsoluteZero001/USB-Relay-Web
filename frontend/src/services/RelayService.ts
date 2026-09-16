@@ -4,7 +4,6 @@ import type {
   SerialPortInfo,
   SerialStatus,
 } from "./serial/types";
-import { AuditLogStore } from "./AuditLogStore";
 import { DEFAULT_CONFIG, type RelayConfig } from "./config/types";
 import { formatHexBytes } from "./hex";
 import {
@@ -38,6 +37,7 @@ export interface HealthResponse {
   status: "ok";
   service: string;
   serial_connected: boolean;
+  serial_supported: boolean;
 }
 
 /**
@@ -51,7 +51,6 @@ export class RelayService {
   private config: RelayConfig;
   private relayState: RelayState = "unknown";
   private connectedPort: string | null = null;
-  private audit = new AuditLogStore();
 
   constructor(
     adapter: SerialAdapter,
@@ -93,34 +92,15 @@ export class RelayService {
     try {
       await this.adapter.connect(portId, this.config.serial);
     } catch (error) {
-      const mapped = this.mapError(error);
-      this.record(
-        "CONNECT",
-        "SERIAL_CONNECT",
-        null,
-        portId,
-        "failed",
-        mapped.message,
-        mapped.code,
-      );
-      throw mapped;
+      throw this.mapError(error);
     }
 
     this.connectedPort = portId;
     this.relayState = "unknown";
-    this.record(
-      "CONNECT",
-      "SERIAL_CONNECT",
-      null,
-      portId,
-      "success",
-      `串口 ${portId} 连接成功`,
-    );
     return this.getRelayStatus();
   }
 
   async disconnect(): Promise<RelayStatus> {
-    const port = this.connectedPort;
     try {
       await this.adapter.disconnect();
     } catch {
@@ -128,14 +108,6 @@ export class RelayService {
     }
     this.connectedPort = null;
     this.relayState = "unknown";
-    this.record(
-      "DISCONNECT",
-      "SERIAL_DISCONNECT",
-      null,
-      port,
-      "success",
-      `${port ?? "串口"} 已断开`,
-    );
     return this.getRelayStatus();
   }
 
@@ -170,6 +142,7 @@ export class RelayService {
       status: "ok",
       service: `USB Relay (${this.adapter.name})`,
       serial_connected: this.adapter.getStatus().connected,
+      serial_supported: this.adapter.isSupported(),
     };
   }
 
@@ -180,17 +153,7 @@ export class RelayService {
   ): Promise<RelayActionResponse> {
     const status = this.adapter.getStatus();
     if (!status.connected) {
-      const error = new SerialNotConnectedError("串口尚未连接");
-      this.record(
-        action,
-        `RELAY_${action}`,
-        formatHexBytes(command),
-        this.connectedPort,
-        "failed",
-        error.message,
-        error.code,
-      );
-      throw error;
+      throw new SerialNotConnectedError("串口尚未连接");
     }
 
     const commandText = formatHexBytes(command);
@@ -201,29 +164,12 @@ export class RelayService {
         `串口 ${this.connectedPort ?? "当前设备"} 写入失败，设备可能已拔出，请重新连接`,
       );
       this.relayState = "unknown";
-      this.record(
-        action,
-        `RELAY_${action}`,
-        commandText,
-        this.connectedPort,
-        "failed",
-        mapped.message,
-        mapped.code,
-      );
       throw mapped;
     }
 
     this.relayState = target;
     const channel = this.config.currentChannel || 1;
     const detail = `继电器 ${channel} ${action} 指令发送成功`;
-    this.record(
-      action,
-      `RELAY_${action}`,
-      commandText,
-      this.connectedPort,
-      "success",
-      detail,
-    );
     return {
       success: true,
       message: detail,
@@ -258,25 +204,5 @@ export class RelayService {
     return new SerialConnectionError(
       "连接串口失败，请检查驱动和设备状态",
     );
-  }
-
-  private record(
-    action: string,
-    command: string | null,
-    hex: string | null,
-    port: string | null,
-    result: "success" | "failed",
-    detail: string,
-    errorCode: string | null = null,
-  ): void {
-    this.audit.add({
-      action,
-      command,
-      hex,
-      port,
-      result,
-      detail,
-      error_code: errorCode,
-    });
   }
 }

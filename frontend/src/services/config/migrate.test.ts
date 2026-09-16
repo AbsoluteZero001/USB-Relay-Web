@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { normalizeAppConfig } from "./migrate";
-import { DEFAULT_CONFIG } from "./types";
 
 describe("configuration migration", () => {
   it("returns the default serial parameters", () => {
@@ -53,8 +52,5 @@ describe("configuration migration", () => {
     expect(config.relay.serial.stopBits).toBe(1);
     expect(config.relay.serial.parity).toBe("none");
     expect(config.relay.serial.flowControl).toBe("none");
-    expect(config.relay.statusQuery).toEqual(
-      DEFAULT_CONFIG.relay.statusQuery,
-    );
   });
 });
