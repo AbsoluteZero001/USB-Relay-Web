@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { WarningFilled } from "@element-plus/icons-vue";
+import { Connection, WarningFilled } from "@element-plus/icons-vue";
 
 import {
   clearAuditLogs,
@@ -385,8 +385,12 @@ onUnmounted(() => {
   <div class="dashboard-shell">
     <header class="topbar">
       <div class="topbar-title">
-        <p class="section-label">LOCAL HARDWARE CONTROL</p>
-        <h1>USB Relay Control</h1>
+        <span class="brand-mark"><Connection /></span>
+        <div>
+          <p class="section-label">LOCAL HARDWARE CONTROL</p>
+          <h1>USB Relay Control</h1>
+          <p class="topbar-subtitle">本机串口设备控制台</p>
+        </div>
       </div>
       <div class="topbar-summary">
         <div class="summary-item">

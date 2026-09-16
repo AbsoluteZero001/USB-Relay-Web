@@ -79,7 +79,7 @@ function portLabel(port: SerialPortInfo): string {
 </script>
 
 <template>
-  <section class="panel">
+  <section class="panel serial-panel">
     <header class="panel-header">
       <div>
         <p class="section-label">SERIAL LINK</p>
