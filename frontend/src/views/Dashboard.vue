@@ -27,6 +27,7 @@ import {
   type SerialPortInfo,
   type SerialStatus,
 } from "../api/relay";
+import { findMatchingPort } from "../services/device-rules";
 import OperationLog from "../components/OperationLog.vue";
 import RelayCard from "../components/RelayCard.vue";
 import SerialPanel from "../components/SerialPanel.vue";
@@ -108,6 +109,10 @@ const currentDevice = computed(() => {
     "—"
   );
 });
+const detectedRelayPort = computed(
+  () =>
+    findMatchingPort(ports.value, appConfig.value.deviceRules)?.port.port ?? null,
+);
 const operationTagType = computed<"success" | "danger" | "info">(() => {
   if (lastOperation.value.status === "success") {
     return "success";
@@ -188,15 +193,17 @@ async function loadPorts(): Promise<void> {
   try {
     const nextPorts = await listSerialPorts();
     ports.value = nextPorts;
+    const preferredPort =
+      findMatchingPort(nextPorts, appConfig.value.deviceRules)?.port.port ?? null;
 
     const previousStillExists = nextPorts.some(
       (port) => port.port === previousSelection,
     );
 
     if (!previousSelection) {
-      selectedPort.value = nextPorts[0]?.port ?? "";
+      selectedPort.value = preferredPort ?? nextPorts[0]?.port ?? "";
     } else if (!previousStillExists) {
-      selectedPort.value = "";
+      selectedPort.value = preferredPort ?? "";
     }
   } catch (error) {
     showError(getApiErrorMessage(error));
@@ -460,6 +467,7 @@ onMounted(async () => {
         :scanning="scanning"
         :connection-state="connectionState"
         :connection-message="connectionMessage"
+        :detected-relay-port="detectedRelayPort"
         :serial-options="appConfig.relay.serial"
         :active-operation="
           activeOperation === 'connect' || activeOperation === 'disconnect'

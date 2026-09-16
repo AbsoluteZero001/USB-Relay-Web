@@ -348,6 +348,14 @@ button {
   line-height: 1.45;
 }
 
+.device-meta .relay-detection {
+  color: #8a514c;
+}
+
+.device-meta .relay-detection.detected {
+  color: #18765f;
+}
+
 .panel-actions {
   display: flex;
   justify-content: flex-end;

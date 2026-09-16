@@ -35,8 +35,8 @@ function actionTagType(
 
 function actionLabel(action: string): string {
   const labels: Record<string, string> = {
-    ON: "开启",
-    OFF: "关闭",
+    ON: "ON",
+    OFF: "OFF",
     CONNECT: "连接",
     DISCONNECT: "断开",
   };

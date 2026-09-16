@@ -20,10 +20,10 @@ const emit = defineEmits<{
 
 const stateLabel = computed(() => {
   if (props.status.relay_state === "on") {
-    return "已开启";
+    return "ON";
   }
   if (props.status.relay_state === "off") {
-    return "已关闭";
+    return "OFF";
   }
   return "未知";
 });
@@ -57,10 +57,10 @@ const switchLabel = computed(() => {
 });
 const switchStateText = computed(() => {
   if (props.status.relay_state === "on") {
-    return "当前已开启";
+    return "当前 ON";
   }
   if (props.status.relay_state === "off") {
-    return "当前已关闭";
+    return "当前 OFF";
   }
   return "状态未知";
 });
@@ -136,7 +136,7 @@ function toggleRelay(): void {
           </span>
         </span>
         <span class="relay-switch-copy">
-          <strong>{{ switchChecked ? "开启" : "关闭" }}</strong>
+          <strong>{{ switchChecked ? "ON" : "OFF" }}</strong>
           <span>{{ switchStateText }}</span>
         </span>
       </button>
@@ -157,7 +157,7 @@ function toggleRelay(): void {
       v-if="status.connected && status.relay_state === 'unknown'"
       class="relay-unknown-actions"
     >
-      <span>状态未知时，可直接发送已实机验证的安全关闭指令。</span>
+      <span>状态未知时，可直接发送已实机验证的安全 OFF 指令。</span>
       <el-button
         type="danger"
         plain
@@ -167,12 +167,12 @@ function toggleRelay(): void {
         :loading="activeOperation === 'off'"
         @click="emit('off')"
       >
-        安全关闭
+        安全 OFF
       </el-button>
     </div>
 
     <p class="relay-control-note">
-      开关直接发送已实机验证的 LCUS-1 开启/关闭指令，不执行状态回读。
+      开关直接发送已实机验证的 LCUS-1 ON/OFF 指令，不执行状态回读。
     </p>
   </section>
 </template>

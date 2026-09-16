@@ -20,6 +20,7 @@ const props = defineProps<{
   scanning: boolean;
   connectionState: SerialConnectionState;
   connectionMessage: string;
+  detectedRelayPort: string | null;
   serialOptions: SerialOpenOptions;
   activeOperation: "connect" | "disconnect" | null;
 }>();
@@ -37,6 +38,18 @@ const selectedPortInfo = computed(
 
 const displayPort = computed(
   () => props.connectedPort || props.selectedPort || "未选择",
+);
+
+const runningInDesktop = Boolean(window.desktopAPI?.serial);
+const scanButtonLabel = runningInDesktop ? "扫描串口" : "添加串口";
+const scanButtonTooltip = runningInDesktop
+  ? "重新扫描电脑上的串口设备"
+  : "选择并授权浏览器可使用的串口设备";
+
+const relayDetectionText = computed(() =>
+  props.detectedRelayPort
+    ? `已识别 ${props.detectedRelayPort}`
+    : "未识别到 CH340 继电器",
 );
 
 const parityLabels: Record<SerialOpenOptions["parity"], string> = {
@@ -94,7 +107,13 @@ function handlePortChange(value: string): void {
 
 function portLabel(port: SerialPortInfo): string {
   const current = port.is_current || port.port === props.connectedPort;
-  return `${port.port} · ${port.description}${current ? " · 当前设备" : ""}`;
+  const labels = [
+    port.port,
+    port.description,
+    port.port === props.detectedRelayPort ? "已识别继电器" : "",
+    current ? "当前设备" : "",
+  ].filter(Boolean);
+  return labels.join(" · ");
 }
 </script>
 
@@ -123,20 +142,28 @@ function portLabel(port: SerialPortInfo): string {
           @update:model-value="handlePortChange"
         >
           <el-option
+            v-if="ports.length === 0"
+            disabled
+            label="未发现可用串口"
+            value=""
+          />
+          <el-option
             v-for="port in ports"
             :key="port.port"
             :label="portLabel(port)"
             :value="port.port"
           />
         </el-select>
-        <el-tooltip content="选择并添加串口设备" placement="top">
+        <el-tooltip :content="scanButtonTooltip" placement="top">
           <el-button
             :icon="Refresh"
             :loading="scanning"
             :disabled="busy || scanning"
             aria-label="刷新串口列表"
             @click="emit('refresh')"
-          />
+          >
+            {{ scanButtonLabel }}
+          </el-button>
         </el-tooltip>
       </div>
     </div>
@@ -151,6 +178,15 @@ function portLabel(port: SerialPortInfo): string {
         <dd>
           {{ dataFormat }}
           <small>{{ dataFormatDetail }}</small>
+        </dd>
+      </div>
+      <div>
+        <dt>识别结果</dt>
+        <dd
+          class="relay-detection"
+          :class="{ detected: !!detectedRelayPort }"
+        >
+          {{ relayDetectionText }}
         </dd>
       </div>
       <div>

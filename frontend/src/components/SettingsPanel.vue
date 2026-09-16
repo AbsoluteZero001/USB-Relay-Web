@@ -185,7 +185,7 @@ function handleClose(): void {
           :max="32"
         />
       </el-form-item>
-      <el-form-item label="开启指令 (HEX)">
+      <el-form-item label="ON 指令 (HEX)">
         <el-input
           v-model="onCommandHex"
           placeholder="A0 01 01 A2"
@@ -193,7 +193,7 @@ function handleClose(): void {
         />
         <p class="form-hint">空格分隔的十六进制字节，例如 A0 01 01 A2</p>
       </el-form-item>
-      <el-form-item label="关闭指令 (HEX)">
+      <el-form-item label="OFF 指令 (HEX)">
         <el-input
           v-model="offCommandHex"
           placeholder="A0 01 00 A1"
