@@ -150,6 +150,16 @@ function handleClose(): void {
     <el-form label-width="104px" label-position="left">
       <el-divider content-position="left">串口参数</el-divider>
       <div class="settings-parameter-grid">
+        <el-form-item label="串口" class="parameter-wide">
+          <el-input
+            :model-value="
+              selectedPort
+                ? `已自动识别 ${selectedPort}`
+                : '没有识别到串口设备'
+            "
+            readonly
+          />
+        </el-form-item>
         <el-form-item label="波特率">
           <el-select v-model="form.relay.serial.baudRate">
             <el-option
