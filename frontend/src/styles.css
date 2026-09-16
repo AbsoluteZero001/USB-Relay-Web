@@ -207,11 +207,13 @@ button {
 .backend-state {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .backend-state .el-tag {
-  align-self: flex-start;
+  align-self: center;
 }
 
 .dashboard-grid {
