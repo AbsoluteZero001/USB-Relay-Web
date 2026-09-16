@@ -8,6 +8,14 @@ import type {
   SerialConnectionState,
 } from "../../src/services/serial/types";
 import { toNodeFlowControlOptions } from "../../src/services/serial/flow-control";
+import {
+  OperationTimeoutError,
+  withTimeout,
+} from "../../src/services/serial/timeout";
+
+const OPEN_TIMEOUT_MS = 5000;
+const WRITE_TIMEOUT_MS = 4000;
+const CLOSE_TIMEOUT_MS = 1500;
 
 // Known USB vendor ids for common USB-serial chips.
 const VENDOR_NAMES: Record<string, string> = {
@@ -109,130 +117,184 @@ export class SerialService extends EventEmitter {
     return mapped;
   }
 
-  connect(portId: string, options: SerialOpenOptions): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (
-        this.port &&
-        this.state === "connected" &&
-        this.currentPath === portId
-      ) {
-        resolve();
-        return;
-      }
+  async connect(portId: string, options: SerialOpenOptions): Promise<void> {
+    if (
+      this.port &&
+      this.state === "connected" &&
+      this.currentPath === portId
+    ) {
+      return;
+    }
 
-      if (this.port) {
-        this.port.close(() => {
-          this.port = null;
-        });
-      }
-
-      this.state = "connecting";
-      this.errorCode = null;
-      this.errorDetail = null;
-      this.emitStatus();
-
-      const port = new SerialPort({
-        path: portId,
-        baudRate: options.baudRate,
-        dataBits: options.dataBits,
-        stopBits: options.stopBits,
-        parity: options.parity as "none" | "even" | "odd" | "mark" | "space",
-        ...toNodeFlowControlOptions(options.flowControl),
-        autoOpen: false,
-      });
-
-      port.open((err) => {
-        if (err) {
-          const mapped = this.mapOpenError(err.message);
-          this.state = "error";
-          this.errorCode = mapped.code;
-          this.errorDetail = mapped.message;
-          this.emitStatus();
-          reject(new Error(mapped.message));
-          return;
-        }
-
-        this.port = port;
-        this.currentPath = portId;
-        this.baudrate = options.baudRate;
-        this.state = "connected";
-        this.errorCode = null;
-        this.errorDetail = null;
-
-        port.on("data", (data: Buffer) => {
-          this.emit("data", Array.from(data));
-        });
-
-        port.on("close", () => {
-          if (this.port !== port) {
-            return;
-          }
-          this.handleClose("设备已断开");
-        });
-
-        port.on("error", (err) => {
-          if (this.port !== port) {
-            return;
-          }
-          this.handleClose(err.message || "串口错误");
-        });
-
-        this.emitStatus();
-        resolve();
-      });
-    });
-  }
-
-  disconnect(): Promise<void> {
-    return new Promise((resolve) => {
-      if (!this.port) {
-        this.state = "disconnected";
-        this.currentPath = null;
-        this.errorCode = null;
-        this.errorDetail = null;
-        this.emitStatus();
-        resolve();
-        return;
-      }
-
-      const port = this.port;
+    if (this.port) {
+      const previousPort = this.port;
       this.port = null;
-      port.close((err) => {
-        if (err) {
-          // Ignore close errors.
-        }
-        this.state = "disconnected";
-        this.currentPath = null;
-        this.errorCode = null;
-        this.errorDetail = null;
-        this.emitStatus();
-        resolve();
-      });
-    });
-  }
+      await this.closePort(previousPort);
+    }
 
-  send(data: number[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.port || this.state !== "connected") {
-        reject(new Error("串口尚未连接"));
+    this.state = "connecting";
+    this.currentPath = portId;
+    this.errorCode = null;
+    this.errorDetail = null;
+    this.emitStatus();
+
+    const port = new SerialPort({
+      path: portId,
+      baudRate: options.baudRate,
+      dataBits: options.dataBits,
+      stopBits: options.stopBits,
+      parity: options.parity as "none" | "even" | "odd" | "mark" | "space",
+      ...toNodeFlowControlOptions(options.flowControl),
+      autoOpen: false,
+    });
+
+    let openTimedOut = false;
+    try {
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          port.open((err) => {
+            if (openTimedOut) {
+              if (!err) {
+                void this.closePort(port);
+              }
+              if (err) {
+                reject(err);
+              } else {
+                resolve();
+              }
+              return;
+            }
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        }),
+        OPEN_TIMEOUT_MS,
+        `${portId} 打开超时，未检测到可用串口设备`,
+        () => {
+          openTimedOut = true;
+        },
+      );
+    } catch (error) {
+      const mapped =
+        openTimedOut || error instanceof OperationTimeoutError
+          ? {
+              code: "SERIAL_OPEN_TIMEOUT",
+              message: `${portId} 打开超时，未检测到可用串口设备。请确认继电器已插入且端口未被占用。`,
+            }
+          : this.mapOpenError(
+              error instanceof Error ? error.message : "串口打开失败",
+            );
+      this.state = "error";
+      this.errorCode = mapped.code;
+      this.errorDetail = mapped.message;
+      await this.closePort(port);
+      this.emitStatus();
+      throw new Error(mapped.message);
+    }
+
+    this.port = port;
+    this.baudrate = options.baudRate;
+    this.state = "connected";
+    this.errorCode = null;
+    this.errorDetail = null;
+
+    port.on("data", (data: Buffer) => {
+      this.emit("data", Array.from(data));
+    });
+
+    port.on("close", () => {
+      if (this.port !== port) {
         return;
       }
-      this.port.write(Buffer.from(data), (err) => {
-        if (err) {
-          this.handleClose("串口写入失败，设备可能已拔出");
-          reject(new Error("串口写入失败，设备可能已拔出"));
-          return;
-        }
-        this.port?.drain((drainErr) => {
-          if (drainErr) {
-            this.handleClose("串口写入失败，设备可能已拔出");
-            reject(new Error("串口写入失败"));
+      this.handleClose("设备已断开");
+    });
+
+    port.on("error", (err) => {
+      if (this.port !== port) {
+        return;
+      }
+      this.handleClose(err.message || "串口错误");
+    });
+
+    this.emitStatus();
+  }
+
+  async disconnect(): Promise<void> {
+    const port = this.port;
+    this.port = null;
+
+    if (port) {
+      await this.closePort(port);
+    }
+
+    this.state = "disconnected";
+    this.currentPath = null;
+    this.errorCode = null;
+    this.errorDetail = null;
+    this.emitStatus();
+  }
+
+  async send(data: number[]): Promise<void> {
+    const port = this.port;
+    if (!port || this.state !== "connected") {
+      throw new Error("串口尚未连接");
+    }
+
+    let writeTimedOut = false;
+    let cleanupWriteError = (): void => undefined;
+    const timeoutMessage = `串口 ${this.currentPath ?? ""} 写入超时，设备可能未连接或未响应`;
+    try {
+      const writeOperation = new Promise<void>((resolve, reject) => {
+        const handlePortError = (error: Error): void => {
+          reject(error);
+        };
+        port.once("error", handlePortError);
+
+        cleanupWriteError = (): void => {
+          port.off("error", handlePortError);
+        };
+
+        port.write(Buffer.from(data), (err) => {
+          if (err) {
+            cleanupWriteError();
+            reject(err);
             return;
           }
-          resolve();
+          port.drain((drainErr) => {
+            cleanupWriteError();
+            if (drainErr) {
+              reject(drainErr);
+              return;
+            }
+            resolve();
+          });
         });
       });
-    });
+
+      await withTimeout(
+        writeOperation,
+        WRITE_TIMEOUT_MS,
+        timeoutMessage,
+        () => {
+          writeTimedOut = true;
+          cleanupWriteError();
+        },
+      );
+    } catch (error) {
+      const timedOut =
+        writeTimedOut || error instanceof OperationTimeoutError;
+      const detail = timedOut
+        ? timeoutMessage
+        : "串口写入失败，设备可能已拔出";
+      this.handleClose(
+        detail,
+        timedOut ? "SERIAL_WRITE_TIMEOUT" : "SERIAL_DEVICE_DISCONNECTED",
+      );
+      throw new Error(detail);
+    }
   }
 
   getStatus(): SerialStatus {
@@ -248,13 +310,35 @@ export class SerialService extends EventEmitter {
     };
   }
 
-  private handleClose(detail: string): void {
+  private handleClose(
+    detail: string,
+    errorCode = "SERIAL_DEVICE_DISCONNECTED",
+  ): void {
+    const port = this.port;
     this.state = "error";
-    this.errorCode = "SERIAL_DEVICE_DISCONNECTED";
+    this.errorCode = errorCode;
     this.errorDetail = detail;
     this.port = null;
     this.currentPath = null;
+    if (port) {
+      void this.closePort(port);
+    }
     this.emitStatus();
+  }
+
+  private async closePort(port: SerialPort): Promise<void> {
+    if (!port.isOpen) return;
+    try {
+      await withTimeout(
+        new Promise<void>((resolve) => {
+          port.close(() => resolve());
+        }),
+        CLOSE_TIMEOUT_MS,
+        "关闭串口超时",
+      );
+    } catch {
+      // Closing is best-effort; the service state is reset by the caller.
+    }
   }
 
   private emitStatus(): void {

@@ -7,6 +7,10 @@ import type {
 import { DEFAULT_CONFIG, type RelayConfig } from "./config/types";
 import { formatHexBytes } from "./hex";
 import {
+  OperationTimeoutError,
+  withTimeout,
+} from "./serial/timeout";
+import {
   PortBusyError,
   SerialConnectionError,
   SerialNotConnectedError,
@@ -15,6 +19,9 @@ import {
   ServiceError,
   WebSerialUnsupportedError,
 } from "./errors";
+
+const SEND_TIMEOUT_MS = 6000;
+const DISCONNECT_TIMEOUT_MS = 1500;
 
 export type RelayState = "on" | "off" | "unknown";
 export type RelayStateSource = "software_last_command" | "unknown";
@@ -163,11 +170,33 @@ export class RelayService {
     }
 
     const commandText = formatHexBytes(command);
+    const timeoutMessage = `串口 ${this.connectedPort ?? "当前设备"} 写入超时，设备可能未连接或未响应`;
     try {
-      await this.adapter.send(new Uint8Array(command));
+      await withTimeout(
+        this.adapter.send(new Uint8Array(command)),
+        SEND_TIMEOUT_MS,
+        timeoutMessage,
+      );
     } catch (error) {
+      const detail = error instanceof Error ? error.message : "";
+      const timedOut =
+        error instanceof OperationTimeoutError || detail.includes("超时");
+      if (timedOut) {
+        try {
+          await withTimeout(
+            this.adapter.disconnect(),
+            DISCONNECT_TIMEOUT_MS,
+            "关闭串口超时",
+          );
+        } catch {
+          // The adapter is already being discarded after the write timeout.
+        }
+        this.connectedPort = null;
+      }
       const mapped = new SerialWriteError(
-        `串口 ${this.connectedPort ?? "当前设备"} 写入失败，设备可能已拔出，请重新连接`,
+        timedOut
+          ? timeoutMessage
+          : `串口 ${this.connectedPort ?? "当前设备"} 写入失败，设备可能已拔出，请重新连接`,
       );
       this.relayState = "unknown";
       throw mapped;

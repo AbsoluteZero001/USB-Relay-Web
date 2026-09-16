@@ -7,6 +7,10 @@ import type {
   SerialPortInfo,
   SerialStatus,
 } from "./types";
+import { withTimeout } from "./timeout";
+
+const WRITE_TIMEOUT_MS = 4000;
+const CLOSE_TIMEOUT_MS = 1500;
 
 // Known USB vendor ids for common USB-serial chips.
 const VENDOR_NAMES: Record<number, string> = {
@@ -193,17 +197,61 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
     if (!this.port || this.state !== "connected") {
       throw new Error("串口尚未连接");
     }
-    const writer = this.port.writable?.getWriter();
+    const port = this.port;
+    const writer = port.writable?.getWriter();
     if (!writer) {
       throw new Error("串口不可写，请重新连接");
     }
+    let timedOut = false;
+    let failure: Error | null = null;
+    const timeoutMessage = "串口写入超时，设备可能未连接或未响应";
     try {
-      await writer.write(data);
+      await withTimeout(
+        writer.write(data),
+        WRITE_TIMEOUT_MS,
+        timeoutMessage,
+        () => {
+          timedOut = true;
+        },
+      );
     } catch (error) {
-      this.handleDisconnect(error);
-      throw error;
+      const isTimeout =
+        timedOut ||
+        (error instanceof Error &&
+          error.name === "OperationTimeoutError");
+      failure =
+        isTimeout
+          ? new Error(timeoutMessage)
+          : error instanceof Error
+            ? error
+            : new Error("串口写入失败");
+      if (timedOut) {
+        void writer.abort(failure).catch(() => undefined);
+      }
     } finally {
-      writer.releaseLock();
+      try {
+        writer.releaseLock();
+      } catch {
+        // The stream may still be settling after a timed-out write.
+      }
+    }
+
+    if (failure) {
+      this.handleDisconnect(
+        failure,
+        timedOut ? "SERIAL_WRITE_TIMEOUT" : "SERIAL_DEVICE_DISCONNECTED",
+      );
+      void this.stopReadLoop();
+      try {
+        await withTimeout(
+          port.close(),
+          CLOSE_TIMEOUT_MS,
+          "关闭串口超时",
+        );
+      } catch {
+        // The port may already be closed after the write failure.
+      }
+      throw failure;
     }
   }
 
@@ -286,10 +334,13 @@ export class WebSerialAdapter implements RequestableSerialAdapter {
     this.reader = null;
   }
 
-  private handleDisconnect(error: unknown): void {
+  private handleDisconnect(
+    error: unknown,
+    errorCode = "SERIAL_DEVICE_DISCONNECTED",
+  ): void {
     const message = error instanceof Error ? error.message : "设备已断开";
     this.state = "error";
-    this.errorCode = "SERIAL_DEVICE_DISCONNECTED";
+    this.errorCode = errorCode;
     this.errorDetail = message;
     this.port = null;
     this.portIndex = null;

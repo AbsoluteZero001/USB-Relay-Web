@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CONFIG } from "./config/types";
 import { RelayService } from "./RelayService";
@@ -18,7 +18,10 @@ class FakeAdapter implements SerialAdapter {
   }> = [];
   private connected = false;
 
-  constructor(private readonly supported = true) {}
+  constructor(
+    private readonly supported = true,
+    private readonly hangSend = false,
+  ) {}
 
   isSupported(): boolean {
     return this.supported;
@@ -38,6 +41,9 @@ class FakeAdapter implements SerialAdapter {
   }
 
   async send(data: Uint8Array): Promise<void> {
+    if (this.hangSend) {
+      return new Promise<void>(() => undefined);
+    }
     this.writes.push(Array.from(data));
   }
 
@@ -59,6 +65,10 @@ class FakeAdapter implements SerialAdapter {
 }
 
 describe("RelayService LCUS-1 compatibility", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("uses the default ON and OFF commands", async () => {
     const adapter = new FakeAdapter();
     const relay = new RelayService(adapter, DEFAULT_CONFIG.relay);
@@ -115,5 +125,22 @@ describe("RelayService LCUS-1 compatibility", () => {
       9600,
       115200,
     ]);
+  });
+
+  it("times out a stalled write and releases the connection", async () => {
+    vi.useFakeTimers();
+    const adapter = new FakeAdapter(true, true);
+    const relay = new RelayService(adapter, DEFAULT_CONFIG.relay);
+    await relay.connect("COM3");
+
+    const pending = relay.on();
+    const rejection = expect(pending).rejects.toMatchObject({
+      message: expect.stringContaining("写入超时"),
+    });
+
+    await vi.advanceTimersByTimeAsync(6000);
+
+    await rejection;
+    expect(relay.getRelayStatus().connected).toBe(false);
   });
 });
