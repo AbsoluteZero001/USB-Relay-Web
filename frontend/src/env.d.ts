@@ -1,13 +1,5 @@
 /// <reference types="vite/client" />
 
-interface ImportMetaEnv {
-  readonly VITE_API_BASE_URL?: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
-
 // Web Serial API (Chromium 89+). Not included in default TS DOM lib.
 interface SerialPortUsbInfo {
   usbVendorId?: number;

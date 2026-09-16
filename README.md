@@ -1,41 +1,30 @@
-# USB-Relay-Web
-运行在 Windows 本机上的 USB 继电器 Web 控制系统，采用 Vue 3 + TypeScript + FastAPI + PySerial 构建。浏览器中的 Vue 3 Dashboard 通过 REST API 调用 FastAPI，服务层通过 PySerial 打开 CH340 串口，并使用已经实机验证的 LCUS-1 HEX 指令控制 1 路继电器。
+# USB-Relay-Web（纯前端 Web Serial 版）
 
-目前项目已完成第三阶段，实现了从 Web Dashboard → FastAPI → RelayService → SerialService → PySerial → CH340 → LCUS-1 → 继电器的真实硬件控制闭环。在此基础上增加了串口生命周期状态机、健康检查、内存操作审计、前端日志视图、统一错误处理以及自动化测试，并针对 Windows 本机环境进行了实际硬件验证。
+运行在浏览器中的 USB 继电器 Web 控制系统，采用 **Vue 3 + TypeScript + Web Serial API** 构建。浏览器直接通过 Web Serial API 打开 CH340 串口，并使用已经实机验证的 LCUS-1 HEX 指令控制 1 路继电器，**无需后端服务**。
+
+> 本分支为纯前端方案，已移除 FastAPI / PySerial 后端。如需后端版本，请切换到 `main` 分支。
 
 已实机验证 Relay 1 的 ON/OFF 控制指令：
 
-A0 01 01 A2 — Relay 1 ON
-A0 01 00 A1 — Relay 1 OFF
+- `A0 01 01 A2` — Relay 1 ON
+- `A0 01 00 A1` — Relay 1 OFF
 
 需要说明的是，LCUS-1 当前未验证可用的继电器状态回读协议，因此页面中的继电器状态仅表示软件最后一次成功发送的 ON/OFF 命令，不代表硬件实际状态。
 
-本项目定位为 Windows 本机硬件控制工具，当前不包含用户登录、数据库、Redis、权限系统、WebSocket、Docker、云端控制、多设备管理、自动重连及定时任务等功能。
 ## 技术栈
 
-- 前端：Vue 3、TypeScript、Vite、Axios、Element Plus
-- 后端：Python 3.12+、FastAPI、Uvicorn、PySerial
-- 数据模型与配置：Pydantic、pydantic-settings
-- 测试：pytest、FastAPI TestClient、fake serial
+- 前端：Vue 3、TypeScript、Vite、Element Plus
+- 串口通信：Web Serial API（浏览器原生，无第三方串口库）
+- 无后端、无数据库、无构建产物以外的运行时依赖
 
 ## 系统架构
 
 ```text
 Vue 3 Dashboard
-      │ HTTP / JSON
+      │ Web Serial API (navigator.serial)
       ▼
-FastAPI (/api)
-      ├── HealthService ── /api/health
-      ├── AuditLogService ── /api/logs
-      ▼
-RelayService
-      │ LCUS-1 指令
-      ▼
-SerialService
-      │ 串行化写入
-      ▼
-PySerial
-      │
+Browser Serial Port
+      │ HEX 指令
       ▼
 Windows COM3 / CH340
       │
@@ -45,33 +34,20 @@ LCUS-1 Relay 1
 
 代码边界：
 
-- API 层只解析请求、调用服务和返回模型，不直接操作 PySerial。
-- `RelayService` 只处理继电器业务和固定协议，不管理串口对象生命周期。
-- `SerialService` 只管理串口扫描、连接、断开和写入，不包含继电器业务。
-- 写入由 `threading.RLock` 保护，避免并发请求把指令字节交错发送。
-- `AuditLogService` 独立维护内存操作记录，API 路由不保存审计数据。
-- `SerialService` 只维护一个当前串口对象，并在异常后清除失效句柄。
+- `api/relay.ts` 封装 Web Serial API 调用、LCUS-1 指令、内存审计日志和统一错误码。
+- 组件层（`Dashboard.vue`、`SerialPanel.vue`、`RelayCard.vue`、`OperationLog.vue`）只负责 UI 和交互，不直接操作 `navigator.serial`。
+- 写入由 UI 层的 `activeOperation` 防重入保护，避免并发请求把指令字节交错发送。
+- 操作日志仅存在于浏览器内存，页面刷新后清空。
 
-## 第二阶段功能
+## 浏览器要求
 
-- 串口扫描返回 `port`、`device`、`description`、`manufacturer`、`hwid` 和 `is_current`。
-- 对同一端口重复执行连接是幂等的，不会创建第二个串口对象。
-- 连接另一个端口时，先安全断开旧端口，再尝试打开新端口。
-- ON/OFF 请求分别在本地日志中记录时间、动作、端口、HEX、结果和错误代码。
-- 前端轮询带防重入保护，不会因为请求慢而叠加状态查询。
-- 端口刷新不会自动切换到另一个 COM；原端口消失时会保留明确错误。
-- ON/OFF 各自拥有独立 loading，请求结束或失败后都会恢复按钮。
-- 前端区分未连接、已连接、设备断开和串口异常，并显示结构化最近操作。
+| 要求 | 说明 |
+| --- | --- |
+| 浏览器 | Chrome / Edge 89 及以上（Chromium 内核） |
+| 访问方式 | `https://` 或 `http://localhost`（Web Serial 安全上下文要求） |
+| 驱动 | CH340 驱动已安装，设备管理器中可见对应 COM 口 |
 
-## 第三阶段功能
-
-- 串口生命周期状态为 `disconnected`、`connecting`、`connected`、`error`。
-- `GET /api/serial/status` 返回状态、端口、设备名称、波特率和错误信息。
-- `GET /api/health` 用于前端判断后端在线，不要求继电器硬件存在。
-- `GET /api/logs` 返回最近 20 条操作记录，支持 `limit` 和 `offset`。
-- `DELETE /api/logs` 清空当前进程的内存日志。
-- FastAPI shutdown 会关闭当前串口，避免后端退出后继续占用 COM。
-- 浏览器刷新或重新打开不会自动发送 ON，也不会恢复上次运行状态。
+Firefox、Safari 不支持 Web Serial API，页面会显示"浏览器不支持"提示。
 
 ## 已验证硬件与协议
 
@@ -101,183 +77,55 @@ Windows USB
 | Relay 1 ON | `A0 01 01 A2` | 继电器吸合，红灯亮 |
 | Relay 1 OFF | `A0 01 00 A1` | Relay 1 关闭 |
 
-这两条指令已经由 SSCOM V5.13.1 实测确认。项目按原值发送，不做协议猜测或额外编码。
-
 ## 状态说明
 
-LCUS-1 当前没有经过验证的状态回读协议，因此 API 不声称从硬件读取到了继电器状态。`relay_state` 仅表示“软件最近一次成功发送的 ON/OFF 指令”：
+LCUS-1 当前没有经过验证的状态回读协议，因此不声称从硬件读取到了继电器状态。`relay_state` 仅表示"软件最近一次成功发送的 ON/OFF 指令"：
 
 - `on`：软件最近一次成功发送了 ON。
 - `off`：软件最近一次成功发送了 OFF。
 - `unknown`：尚未发送、串口已断开，或最近一次写入失败。
 
-当 `state_source` 为 `software_last_command` 时，响应表示软件记录，不代表硬件确认回读。Dashboard 对这一项的固定文案是“状态来源：软件最后一次命令”。
+当 `state_source` 为 `software_last_command` 时，响应表示软件记录，不代表硬件确认回读。
 
-后端重新启动、串口断开、写入失败或显式断开后，继电器状态回到 `unknown`。项目明确禁止自动恢复上次 ON 状态。
-
-## 串口生命周期
-
-```text
-disconnected
-    │ connect
-    ▼
-connecting
-    ├── success ──► connected
-    ├── connect error ──► error
-    └── explicit disconnect
-
-connected
-    ├── write error / unplug ──► error
-    └── explicit disconnect ──► disconnected
-
-error
-    └── disconnect / new connection attempt ──► disconnected / connecting
-```
-
-`error` 状态可能保留最后一次尝试的端口，便于用户识别，但 `connected=false`，且内部串口对象已清除。再次连接前不需要重启后端，但必须先处理设备或占用问题。
+断开串口、写入失败或页面刷新后，继电器状态回到 `unknown`。项目明确禁止自动恢复上次 ON 状态。
 
 ## 开发环境
 
 - Windows 10/11
-- Python 3.12 或更高版本
 - Node.js 20 或更高版本
 - CH340 驱动
-- 已确认端口号，例如 `COM3`
+- Chrome 或 Edge 89+
 
-## 一键启动开发环境
-
-首次准备依赖：
+## 启动
 
 ```powershell
-cd D:\GitHub\USB-Relay-Web\backend
-if (-not (Test-Path .venv\Scripts\python.exe)) {
-    python -m venv .venv
-}
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 cd D:\GitHub\USB-Relay-Web\frontend
 npm install
+npm run dev
 ```
 
-以后只需要在 PyCharm 中运行 `backend/app/main.py`，或执行：
-
-```powershell
-cd D:\GitHub\USB-Relay-Web\backend
-.\.venv\Scripts\python.exe app\main.py
-```
-
-启动入口会：
-
-- 启动或复用 `127.0.0.1:8000` 上的 FastAPI。
-- 启动或复用 `127.0.0.1:5173` 上的 Vite。
-- 等待两个服务就绪后自动打开 <http://localhost:5173>。
-- 按 `Ctrl+C` 时停止本次启动创建的 Vite，并正常关闭 FastAPI。
-
-Swagger：<http://127.0.0.1:8000/docs>
-
-OpenAPI JSON：<http://127.0.0.1:8000/openapi.json>
-
-后端固定关闭 Uvicorn 自动重载。真实 USB 继电器场景下不使用 `--reload`，
-避免 reloader 创建子进程并重复初始化串口服务。
-
-前端默认请求 `http://127.0.0.1:8000/api`。如需修改，可在 `frontend/.env` 中设置：
-
-```dotenv
-VITE_API_BASE_URL=http://127.0.0.1:8000/api
-```
-
-后端只允许以下开发来源跨域访问：
-
-- `http://localhost:5173`
-- `http://127.0.0.1:5173`
-
-## API
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/serial/ports` | 返回端口、设备、描述、制造商、HWID 和当前连接标记 |
-| `GET` | `/api/serial/status` | 返回串口生命周期状态、端口、设备、波特率 |
-| `POST` | `/api/relay/connect` | 请求体示例：`{"port":"COM3"}` |
-| `POST` | `/api/relay/disconnect` | 关闭当前串口 |
-| `POST` | `/api/relay/on` | 实际发送 `A0 01 01 A2` |
-| `POST` | `/api/relay/off` | 实际发送 `A0 01 00 A1` |
-| `GET` | `/api/relay/status` | 返回连接、端口及软件状态 |
-| `GET` | `/api/logs` | 返回内存操作日志，支持 `limit`、`offset` |
-| `DELETE` | `/api/logs` | 清空内存操作日志 |
-| `GET` | `/api/health` | 返回服务状态和串口连接状态 |
-
-所有业务错误沿用现有统一结构：
-
-```json
-{
-  "detail": "串口 COM3 正在被其他程序占用，请关闭 SSCOM 等串口软件后重试",
-  "code": "SERIAL_PORT_BUSY"
-}
-```
-
-未知后端异常也会转换为稳定的 `INTERNAL_SERVER_ERROR`，不会把 Python traceback 返回给浏览器。
-
-## TX 日志
-
-每次实际执行 ON/OFF 时，后端会输出一行可检索的 JSON 日志，并写入内存审计服务：
-
-```text
-relay_command {"timestamp":"2026-09-15T07:02:11.123456Z","action":"ON","command":"RELAY_ON","hex":"A0 01 01 A2","port":"COM3","result":"success","error_code":null,"detail":"Relay 1 ON 指令发送成功"}
-```
-
-失败时会包含 `error_code` 和用户可读的 `detail`，例如 `SERIAL_WRITE_FAILED`。内存日志最多保留最近 500 条，进程退出后自动消失，不引入数据库。
-
-查询示例：
-
-```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/api/logs?limit=20&offset=0"
-Invoke-RestMethod -Method Delete http://127.0.0.1:8000/api/logs
-```
+浏览器打开 <http://localhost:5173>。
 
 ## 真实测试流程
-
-第一次使用 LCUS-1 + CH340 时，按以下顺序操作：
 
 1. 插入 USB 继电器。
 2. 确认 Windows 已安装 CH340 驱动。
 3. 关闭 SSCOM、Arduino 串口监视器及其他串口工具。
-4. 启动 backend。
-5. 启动 frontend。
-6. 打开 Dashboard。
-7. 选择目标端口，当前实机为 `COM3`。
-8. 点击“连接”，确认设备状态显示 `已连接 COM3`。
-9. 点击 `ON`，页面显示发送成功，命令为 `A0 01 01 A2`。
-10. 确认继电器发出“啪”的吸合声。
-11. 确认 Relay 1 LED 状态变化。
-12. 点击 `OFF`，页面显示发送成功，命令为 `A0 01 00 A1`。
-13. 确认继电器释放，LED 恢复关闭状态。
-14. 点击“断开”，确认串口释放。
-15. 访问 `/api/health`，确认后端在线且 `serial_connected=false`。
-16. 打开“最近操作日志”，确认 CONNECT、ON、OFF、DISCONNECT 按时间倒序显示。
+4. 在 Chrome / Edge 中打开 <http://localhost:5173>。
+5. 点击串口面板右侧的"选择并添加串口设备"按钮，在浏览器弹窗中选择 CH340 对应的串口。
+6. 点击"连接"，确认设备状态显示"已连接"。
+7. 点击 `ON`，页面显示发送成功，命令为 `A0 01 01 A2`。
+8. 确认继电器发出"啪"的吸合声。
+9. 确认 Relay 1 LED 状态变化。
+10. 点击 `OFF`，页面显示发送成功，命令为 `A0 01 00 A1`。
+11. 确认继电器释放，LED 恢复关闭状态。
+12. 点击"断开"，确认串口释放。
 
-软件当前无法读取 LCUS-1 的真实硬件状态。页面中的 ON/OFF 是“软件最后一次命令”记录，不是硬件回读结果。
+软件当前无法读取 LCUS-1 的真实硬件状态。页面中的 ON/OFF 是"软件最后一次命令"记录，不是硬件回读结果。
 
-也可以使用 PowerShell 调用 API：
+关闭浏览器不会发送 OFF，也不会恢复上次 ON；需要关闭继电器时应点击页面中的"关闭继电器 / OFF"。
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/serial/ports
-Invoke-RestMethod -Method Post `
-  -Uri http://127.0.0.1:8000/api/relay/connect `
-  -ContentType "application/json" `
-  -Body '{"port":"COM3"}'
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/relay/on
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/relay/off
-```
-
-## 自动化测试
-
-后端测试不依赖真实继电器：
-
-```powershell
-cd D:\GitHub\USB-Relay-Web\backend
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-前端类型检查和生产构建：
+## 前端类型检查和生产构建
 
 ```powershell
 cd D:\GitHub\USB-Relay-Web\frontend
@@ -285,46 +133,22 @@ npm run typecheck
 npm run build
 ```
 
-Python 静态检查在仓库根目录执行：
-
-```powershell
-npx --yes pyright@latest
-```
-
-根目录的 `pyrightconfig.json` 已将 `backend` 配置为源码根，并关联
-`backend/.venv`。IDE 如仍显示旧诊断，请将 Python 解释器切换为
-`D:\GitHub\USB-Relay-Web\backend\.venv\Scripts\python.exe`，然后重启语言服务器。
-
 ## Windows 使用注意事项
 
 - CH340 必须已安装正确驱动；设备管理器中应能看到对应 COM 端口。
-- 同一个 COM 口在同一时间只能由一个程序打开。运行本服务前先关闭 SSCOM、Arduino 串口监视器等程序，否则会返回端口占用错误。
-- COM 号由 Windows 分配，更换 USB 口后可能改变。项目通过扫描动态发现端口，不把 `COM3` 写死为唯一设备。
-- `backend/app/main.py` 会动态定位项目根目录和 `frontend`，不依赖启动时
-  所在的当前工作目录。
+- 同一个 COM 口在同一时间只能由一个程序打开。使用本页面前先关闭 SSCOM、Arduino 串口监视器等程序，否则会返回端口占用错误。
+- COM 号由 Windows 分配，更换 USB 口后可能改变。Web Serial 无法静默枚举所有 COM 口，需通过"选择并添加串口设备"按钮主动授权。
 - 页面显示 `UNKNOWN` 是预期行为，因为当前协议没有状态回读。只有在本次连接中成功发送 ON/OFF 后，软件状态才会变为 `ON/OFF`。
-- 拔掉 USB 后在下次通信时服务会捕获异常并清理失效连接；重新插入设备后需刷新端口并再次连接。
-- 关闭浏览器不会发送 OFF，也不会恢复上次 ON；需要关闭继电器时应点击页面中的“关闭继电器 / OFF”。
-- 后端正常退出会自动释放串口；非正常强制结束进程时，应由操作系统回收句柄。
+- 拔掉 USB 后在下次通信时页面会捕获异常并清理失效连接；重新插入设备后需重新选择串口并连接。
 - 继电器可能连接真实负载。进行接线和通电测试前，应确认负载电压、电流和隔离要求，并遵守设备额定参数。
 
 ## 常见错误
 
 | 错误代码 | 原因 | 处理方式 |
 | --- | --- | --- |
-| `SERIAL_PORT_BUSY` | COM 口被 SSCOM 等程序占用 | 关闭占用程序，点击刷新后重新连接 |
-| `SERIAL_PORT_NOT_FOUND` | 设备未插入、驱动异常或 COM 号变化 | 检查设备管理器，刷新串口并重新选择 |
-| `SERIAL_NOT_CONNECTED` | 尚未连接或连接已经释放 | 先连接目标 COM，再执行 ON/OFF |
-| `SERIAL_WRITE_FAILED` | USB 被拔出或串口写入失败 | 检查 USB，刷新端口并重新连接 |
-| `SERIAL_PORT_SCAN_FAILED` | Windows 串口服务或扫描层异常 | 检查系统串口服务并查看后端日志 |
-| `INTERNAL_SERVER_ERROR` | 未预期的后端异常 | 查看终端日志，不要向用户展示 traceback |
-
-设备在操作中断开后，前端会收到明确错误，后端会清除失效连接；本阶段没有自动重连。
-
-## 环境变量
-
-后端支持 `USB_RELAY_` 前缀配置，示例见 `backend/.env.example`。硬件通信参数默认值已按实机验证结果设置，不应随意修改。
-
-## 第三阶段边界
-
-当前未实现用户登录、数据库、Redis、WebSocket、Docker、权限系统、多设备管理、云端控制、自动重连、定时任务和复杂主题。操作日志仅存在于后端内存。没有实现硬件状态回读，也没有加入 `FF` 查询、多路协议或未知协议自动探测，因为当前只验证了 Relay 1 的 ON/OFF 两条控制指令。
+| `WEB_SERIAL_UNSUPPORTED` | 当前浏览器不支持 Web Serial API | 使用 Chrome 或 Edge 89+，并通过 https 或 localhost 访问 |
+| `SERIAL_USER_CANCELLED` | 用户取消了串口选择弹窗 | 重新点击"选择并添加串口设备" |
+| `SERIAL_PORT_BUSY` | COM 口被 SSCOM 等程序占用 | 关闭占用程序，重新连接 |
+| `SERIAL_PORT_NOT_FOUND` | 所选串口不存在或已移除 | 重新选择串口设备 |
+| `SERIAL_NOT_CONNECTED` | 尚未连接或连接已经释放 | 先连接目标串口，再执行 ON/OFF |
+| `SERIAL_WRITE_FAILED` | USB 被拔出或串口写入失败 | 检查 USB，重新选择串口并连接 |
