@@ -14,6 +14,7 @@ import {
 } from "../../src/services/serial/timeout";
 
 const OPEN_TIMEOUT_MS = 5000;
+const PROBE_TIMEOUT_MS = 1500;
 const WRITE_TIMEOUT_MS = 4000;
 const CLOSE_TIMEOUT_MS = 1500;
 
@@ -195,6 +196,18 @@ export class SerialService extends EventEmitter {
       throw new Error(mapped.message);
     }
 
+    try {
+      await this.probePort(port, portId);
+    } catch {
+      const message = `${portId} 已打开但设备无响应，可能是不存在的串口或设备未连接`;
+      this.state = "error";
+      this.errorCode = "SERIAL_PORT_UNRESPONSIVE";
+      this.errorDetail = message;
+      await this.closePort(port);
+      this.emitStatus();
+      throw new Error(message);
+    }
+
     this.port = port;
     this.baudrate = options.baudRate;
     this.state = "connected";
@@ -339,6 +352,25 @@ export class SerialService extends EventEmitter {
     } catch {
       // Closing is best-effort; the service state is reset by the caller.
     }
+  }
+
+  private async probePort(
+    port: SerialPort,
+    portId: string,
+  ): Promise<void> {
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        port.get((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      }),
+      PROBE_TIMEOUT_MS,
+      `${portId} 设备探测超时`,
+    );
   }
 
   private emitStatus(): void {
