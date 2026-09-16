@@ -25,7 +25,7 @@ const stateLabel = computed(() => {
   if (props.status.relay_state === "off") {
     return "OFF";
   }
-  return "未知";
+  return "UNKNOWN";
 });
 const busy = computed(() => props.activeOperation !== null);
 const switchChecked = computed(() => {
@@ -42,27 +42,27 @@ const switchDisabled = computed(
 );
 const switchLabel = computed(() => {
   if (!props.status.connected) {
-    return "连接串口后控制";
+    return "CONNECT SERIAL TO CONTROL";
   }
   if (props.activeOperation === "on") {
-    return "正在开启继电器 1";
+    return "TURNING RELAY 1 ON";
   }
   if (props.activeOperation === "off") {
-    return "正在关闭继电器 1";
+    return "TURNING RELAY 1 OFF";
   }
   if (switchChecked.value) {
-    return "点击关闭继电器 1";
+    return "CLICK TO TURN RELAY 1 OFF";
   }
-  return "点击开启继电器 1";
+  return "CLICK TO TURN RELAY 1 ON";
 });
 const switchStateText = computed(() => {
   if (props.status.relay_state === "on") {
-    return "当前 ON";
+    return "CURRENT ON";
   }
   if (props.status.relay_state === "off") {
-    return "当前 OFF";
+    return "CURRENT OFF";
   }
-  return "状态未知";
+  return "STATUS UNKNOWN";
 });
 
 const stateTagType = computed<"success" | "danger" | "info">(() => {
@@ -91,8 +91,8 @@ function toggleRelay(): void {
   <section class="panel relay-panel">
     <header class="panel-header">
       <div>
-        <p class="section-label">输出通道</p>
-        <h2>继电器 1</h2>
+        <p class="section-label">OUTPUT CHANNEL</p>
+        <h2>Relay 1</h2>
       </div>
       <el-tag :type="stateTagType" effect="dark">
         {{ stateLabel }}
@@ -105,12 +105,12 @@ function toggleRelay(): void {
           <SwitchButton />
         </span>
         <div>
-          <span class="relay-state-kicker">继电器输出</span>
+          <span class="relay-state-kicker">RELAY OUTPUT</span>
           <strong>{{ stateLabel }}</strong>
           <p v-if="status.state_source === 'software_last_command'">
-            状态来源：软件最近一次指令
+            SOURCE: LAST SOFTWARE COMMAND
           </p>
-          <p v-else>等待首次控制命令</p>
+          <p v-else>WAITING FOR FIRST COMMAND</p>
         </div>
       </div>
 
@@ -157,7 +157,7 @@ function toggleRelay(): void {
       v-if="status.connected && status.relay_state === 'unknown'"
       class="relay-unknown-actions"
     >
-      <span>状态未知时，可直接发送已实机验证的安全 OFF 指令。</span>
+      <span>UNKNOWN state: send the verified safe OFF command.</span>
       <el-button
         type="danger"
         plain
@@ -167,12 +167,12 @@ function toggleRelay(): void {
         :loading="activeOperation === 'off'"
         @click="emit('off')"
       >
-        安全 OFF
+        SAFE OFF
       </el-button>
     </div>
 
     <p class="relay-control-note">
-      开关直接发送已实机验证的 LCUS-1 ON/OFF 指令，不执行状态回读。
+      Sends verified LCUS-1 ON/OFF commands without hardware status readback.
     </p>
   </section>
 </template>

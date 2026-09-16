@@ -21,10 +21,10 @@ function createWindow(): void {
     height: 800,
     minWidth: 960,
     minHeight: 640,
-    title: "USB Relay Console",
+    title: "USB 继电器控制台",
     backgroundColor: "#20272b",
     webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
+      preload: path.join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -34,6 +34,13 @@ function createWindow(): void {
   mainWindow.webContents.on("did-finish-load", () => {
     mainWindow?.webContents.send("main-process:ready");
   });
+
+  mainWindow.webContents.on(
+    "preload-error",
+    (_event, preloadPath, error) => {
+      console.error(`[preload] failed to load ${preloadPath}:`, error);
+    },
+  );
 
   if (isDev && VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(VITE_DEV_SERVER_URL);

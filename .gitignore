@@ -10,6 +10,7 @@ dist-electron/
 release/
 release2/
 release3/
+release-*/
 .vite/
 npm-debug.log*
 yarn-debug.log*
