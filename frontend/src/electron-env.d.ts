@@ -13,7 +13,7 @@ export interface DesktopVersions {
 
 export interface DesktopSerialAPI {
   listPorts(): Promise<SerialPortInfo[]>;
-  connect(portId: string, options: SerialOpenOptions): Promise<void>;
+  connect(portId: string, options: SerialOpenOptions): Promise<SerialStatus>;
   disconnect(): Promise<void>;
   send(data: number[]): Promise<void>;
   getStatus(): Promise<SerialStatus>;

@@ -70,6 +70,7 @@ ipcMain.handle("serial:list-ports", async () => {
 
 ipcMain.handle("serial:connect", async (_event, portId: string, options: SerialOpenOptions) => {
   await serialService.connect(portId, options);
+  return serialService.getStatus();
 });
 
 ipcMain.handle("serial:disconnect", async () => {

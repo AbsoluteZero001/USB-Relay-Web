@@ -36,7 +36,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     },
   },
   deviceRules: DEFAULT_DEVICE_RULES,
-  autoConnect: false,
+  autoConnect: true,
   autoReconnect: true,
   reconnectIntervalMs: 2000,
 };

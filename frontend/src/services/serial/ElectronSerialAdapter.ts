@@ -39,7 +39,7 @@ export class ElectronSerialAdapter implements SerialAdapter {
   }
 
   async connect(portId: string, options: SerialOpenOptions): Promise<void> {
-    await this.api.connect(portId, options);
+    this.cachedStatus = await this.api.connect(portId, options);
   }
 
   async disconnect(): Promise<void> {

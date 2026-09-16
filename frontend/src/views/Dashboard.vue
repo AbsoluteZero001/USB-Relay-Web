@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { Connection, Setting, WarningFilled } from "@element-plus/icons-vue";
 
 import {
@@ -16,7 +16,6 @@ import {
   listAuditLogs,
   listSerialPorts,
   requestSerialPort,
-  tryAutoConnect,
   turnRelayOff,
   turnRelayOn,
   type AuditLogEntry,
@@ -87,6 +86,14 @@ const lastOperation = ref<OperationRecord>({
   result: "尚未执行操作",
   status: "idle",
 });
+
+const PORT_POLL_INTERVAL_MS = 500;
+const AUTO_CONNECT_RETRY_MS = 2000;
+let portsPollTimer: number | null = null;
+let portScanInFlight = false;
+let autoConnectInFlight = false;
+let autoConnectLastFailureAt = 0;
+let manualDisconnect = false;
 
 const operationInProgress = computed(
   () => activeOperation.value !== null,
@@ -183,12 +190,65 @@ function applySerialStatus(next: SerialStatus): void {
   }
 }
 
-async function loadPorts(): Promise<void> {
-  if (scanning.value) {
+async function autoConnectDetectedPort(port: string): Promise<void> {
+  if (
+    !appConfig.value.autoConnect ||
+    manualDisconnect ||
+    autoConnectInFlight ||
+    operationInProgress.value
+  ) {
+    return;
+  }
+  if (relayStatus.value.connected && relayStatus.value.port === port) {
+    return;
+  }
+  if (Date.now() - autoConnectLastFailureAt < AUTO_CONNECT_RETRY_MS) {
     return;
   }
 
-  scanning.value = true;
+  autoConnectInFlight = true;
+  activeOperation.value = "connect";
+  selectedPort.value = port;
+
+  try {
+    relayStatus.value = await connectRelay(port);
+    connectionState.value = "connected";
+    connectionMessage.value = `已自动连接 ${relayStatus.value.port ?? port}`;
+    errorMessage.value = "";
+    recordOperation(
+      "串口设备",
+      "CONNECT",
+      "—",
+      `已自动连接 ${port}`,
+      "success",
+    );
+    await refreshStatus();
+    await loadLogs();
+  } catch (error) {
+    autoConnectLastFailureAt = Date.now();
+    await refreshStatus();
+    recordOperation(
+      "串口设备",
+      "CONNECT",
+      "—",
+      getApiErrorMessage(error),
+      "failed",
+    );
+  } finally {
+    activeOperation.value = null;
+    autoConnectInFlight = false;
+  }
+}
+
+async function loadPorts(background = false): Promise<void> {
+  if (portScanInFlight || scanning.value) {
+    return;
+  }
+
+  portScanInFlight = true;
+  if (!background) {
+    scanning.value = true;
+  }
   const previousSelection = selectedPort.value;
   try {
     const nextPorts = await listSerialPorts();
@@ -205,10 +265,28 @@ async function loadPorts(): Promise<void> {
     } else if (!previousStillExists) {
       selectedPort.value = preferredPort ?? "";
     }
+
+    if (!preferredPort) {
+      manualDisconnect = false;
+    }
+
+    const connectedPortStillExists =
+      !relayStatus.value.connected ||
+      nextPorts.some((port) => port.port === relayStatus.value.port);
+    if (!connectedPortStillExists) {
+      await refreshStatus();
+    }
+
+    if (preferredPort) {
+      await autoConnectDetectedPort(preferredPort);
+    }
   } catch (error) {
     showError(getApiErrorMessage(error));
   } finally {
-    scanning.value = false;
+    portScanInFlight = false;
+    if (!background) {
+      scanning.value = false;
+    }
   }
 }
 
@@ -256,6 +334,8 @@ async function loadLogs(): Promise<void> {
 
 function refreshAppConfig(): void {
   appConfig.value = getAppConfig();
+  manualDisconnect = false;
+  void loadPorts(true);
 }
 
 async function clearOperationLogs(): Promise<void> {
@@ -301,6 +381,7 @@ async function connect(): Promise<void> {
     return;
   }
 
+  manualDisconnect = false;
   activeOperation.value = "connect";
   const port = selectedPort.value;
   try {
@@ -331,6 +412,7 @@ async function disconnect(): Promise<void> {
   const port = relayStatus.value.port ?? selectedPort.value;
   try {
     relayStatus.value = await disconnectRelay();
+    manualDisconnect = true;
     connectionState.value = "disconnected";
     connectionMessage.value = "未连接";
     errorMessage.value = "";
@@ -395,10 +477,16 @@ onMounted(async () => {
   await initApp();
   refreshAppConfig();
   await Promise.all([loadPorts(), refreshStatus(), loadLogs()]);
-  // Attempt auto-connect if enabled in config (non-blocking).
-  tryAutoConnect().catch(() => {
-    /* auto-connect is best-effort */
-  });
+  portsPollTimer = window.setInterval(() => {
+    void loadPorts(true);
+  }, PORT_POLL_INTERVAL_MS);
+});
+
+onBeforeUnmount(() => {
+  if (portsPollTimer !== null) {
+    window.clearInterval(portsPollTimer);
+    portsPollTimer = null;
+  }
 });
 </script>
 

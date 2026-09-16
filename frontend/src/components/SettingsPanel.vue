@@ -235,7 +235,7 @@ function handleClose(): void {
       <el-divider content-position="left">连接行为</el-divider>
       <el-form-item label="自动连接">
         <el-switch v-model="form.autoConnect" />
-        <span class="form-hint-inline">启动时自动连接第一个匹配设备</span>
+        <span class="form-hint-inline">启动或插入设备时自动连接</span>
       </el-form-item>
       <el-form-item label="自动重连">
         <el-switch v-model="form.autoReconnect" />

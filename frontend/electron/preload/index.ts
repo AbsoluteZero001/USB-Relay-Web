@@ -12,7 +12,7 @@ const serialAPI = {
   listPorts: (): Promise<SerialPortInfo[]> =>
     ipcRenderer.invoke("serial:list-ports"),
 
-  connect: (portId: string, options: SerialOpenOptions): Promise<void> =>
+  connect: (portId: string, options: SerialOpenOptions): Promise<SerialStatus> =>
     ipcRenderer.invoke("serial:connect", portId, options),
 
   disconnect: (): Promise<void> =>
