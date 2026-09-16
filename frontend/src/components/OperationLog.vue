@@ -32,13 +32,23 @@ function actionTagType(
   }
   return "info";
 }
+
+function actionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    ON: "开启",
+    OFF: "关闭",
+    CONNECT: "连接",
+    DISCONNECT: "断开",
+  };
+  return labels[action] ?? action;
+}
 </script>
 
 <template>
   <section class="panel log-panel">
     <header class="panel-header">
       <div>
-        <p class="section-label">AUDIT TRAIL</p>
+        <p class="section-label">操作记录</p>
         <h2>最近操作日志</h2>
       </div>
       <div class="log-actions">
@@ -70,7 +80,7 @@ function actionTagType(
           <tr>
             <th>时间</th>
             <th>动作</th>
-            <th>HEX</th>
+            <th>指令 (HEX)</th>
             <th>端口</th>
             <th>结果</th>
             <th>错误代码</th>
@@ -85,7 +95,7 @@ function actionTagType(
             <td class="log-time">{{ formatTimestamp(entry.timestamp) }}</td>
             <td>
               <el-tag :type="actionTagType(entry.action)" size="small">
-                {{ entry.action }}
+                {{ actionLabel(entry.action) }}
               </el-tag>
             </td>
             <td><code>{{ entry.hex || "—" }}</code></td>

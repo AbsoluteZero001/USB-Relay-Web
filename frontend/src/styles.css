@@ -164,15 +164,16 @@ button {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .summary-item,
 .backend-state {
   min-width: 0;
-  min-height: 54px;
+  min-height: 58px;
   padding: 10px 14px;
   background: #213034;
   border: 1px solid #314145;
@@ -184,7 +185,7 @@ button {
 }
 
 .summary-item span,
-.backend-state > span {
+.backend-state > span:not(.el-tag) {
   display: block;
   margin-bottom: 5px;
   color: #8fa09e;
@@ -207,16 +208,34 @@ button {
 .backend-state {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .backend-state .el-tag {
-  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-btn.el-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  flex: 0 0 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.settings-btn .el-icon {
+  font-size: 19px;
 }
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(390px, 1.08fr);
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -318,6 +337,15 @@ button {
   color: #263335;
   font-size: 13px;
   font-weight: 700;
+}
+
+.device-meta dd small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .panel-actions {
@@ -652,6 +680,34 @@ button {
   line-height: 1.55;
 }
 
+.settings-dialog {
+  max-width: calc(100vw - 32px);
+}
+
+.settings-dialog .el-dialog__body {
+  max-height: min(70vh, 680px);
+  overflow-y: auto;
+  padding-top: 12px;
+}
+
+.settings-dialog .el-dialog__footer {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-dialog .el-form-item {
+  margin-bottom: 16px;
+}
+
+.settings-dialog .el-select,
+.settings-dialog .el-input-number {
+  width: 100%;
+}
+
+.settings-dialog .el-divider {
+  margin: 18px 0 16px;
+}
+
 .relay-unknown-actions {
   display: flex;
   align-items: center;
@@ -719,7 +775,7 @@ button {
 
 .operation-fields {
   display: grid;
-  grid-template-columns: 92px 104px 96px 166px minmax(190px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 16px;
   margin: 15px 0 0;
 }
@@ -938,6 +994,10 @@ button {
 
   .operation-message {
     grid-column: 1 / -1;
+  }
+
+  .backend-state {
+    align-items: center;
   }
 }
 

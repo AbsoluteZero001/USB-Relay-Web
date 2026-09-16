@@ -17,22 +17,23 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:visible": [value: boolean];
+  saved: [];
 }>();
 
 const baudRateOptions = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 const dataBitsOptions: Array<5 | 6 | 7 | 8> = [5, 6, 7, 8];
 const stopBitsOptions: Array<1 | 1.5 | 2> = [1, 1.5, 2];
 const parityOptions: { value: Parity; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "even", label: "Even" },
-  { value: "odd", label: "Odd" },
-  { value: "mark", label: "Mark" },
-  { value: "space", label: "Space" },
+  { value: "none", label: "无校验" },
+  { value: "even", label: "偶校验" },
+  { value: "odd", label: "奇校验" },
+  { value: "mark", label: "标记校验" },
+  { value: "space", label: "空格校验" },
 ];
 const flowControlOptions: { value: FlowControl; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "software", label: "Software (XON/XOFF)" },
-  { value: "hardware", label: "Hardware (RTS/CTS)" },
+  { value: "none", label: "无流控制" },
+  { value: "software", label: "软件流控制 (XON/XOFF)" },
+  { value: "hardware", label: "硬件流控制 (RTS/CTS)" },
 ];
 
 const form = reactive<AppConfig>(getAppConfig());
@@ -98,6 +99,7 @@ async function handleSave(): Promise<void> {
   try {
     await updateAppConfig({ ...form });
     ElMessage.success("配置已保存");
+    emit("saved");
     emit("update:visible", false);
   } catch (error) {
     ElMessage.error(
@@ -115,76 +117,75 @@ function handleClose(): void {
   <el-dialog
     :model-value="visible"
     title="设备 / 继电器设置"
+    class="settings-dialog"
     width="640px"
     :close-on-click-modal="false"
     @update:model-value="(v: boolean) => emit('update:visible', v)"
   >
     <el-form label-width="110px" label-position="left">
       <el-divider content-position="left">串口参数</el-divider>
-      <el-form-item label="波特率">
-        <el-select v-model="form.relay.serial.baudRate" style="width: 160px">
-          <el-option
-            v-for="rate in baudRateOptions"
-            :key="rate"
-            :label="rate"
-            :value="rate"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="数据位">
-        <el-select v-model="form.relay.serial.dataBits" style="width: 120px">
-          <el-option
-            v-for="bits in dataBitsOptions"
-            :key="bits"
-            :label="bits"
-            :value="bits"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="停止位">
-        <el-select v-model="form.relay.serial.stopBits" style="width: 120px">
-          <el-option
-            v-for="bits in stopBitsOptions"
-            :key="bits"
-            :label="bits"
-            :value="bits"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="校验位">
-        <el-select v-model="form.relay.serial.parity" style="width: 160px">
-          <el-option
-            v-for="opt in parityOptions"
-            :key="opt.value"
-            :label="opt.label"
-            :value="opt.value"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="流控制">
-        <el-select
-          v-model="form.relay.serial.flowControl"
-          style="width: 220px"
-        >
-          <el-option
-            v-for="opt in flowControlOptions"
-            :key="opt.value"
-            :label="opt.label"
-            :value="opt.value"
-          />
-        </el-select>
-      </el-form-item>
+      <div class="settings-parameter-grid">
+        <el-form-item label="波特率">
+          <el-select v-model="form.relay.serial.baudRate">
+            <el-option
+              v-for="rate in baudRateOptions"
+              :key="rate"
+              :label="rate"
+              :value="rate"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="数据位">
+          <el-select v-model="form.relay.serial.dataBits">
+            <el-option
+              v-for="bits in dataBitsOptions"
+              :key="bits"
+              :label="bits"
+              :value="bits"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="停止位">
+          <el-select v-model="form.relay.serial.stopBits">
+            <el-option
+              v-for="bits in stopBitsOptions"
+              :key="bits"
+              :label="bits"
+              :value="bits"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="校验位">
+          <el-select v-model="form.relay.serial.parity">
+            <el-option
+              v-for="opt in parityOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="流控制" class="parameter-wide">
+          <el-select v-model="form.relay.serial.flowControl">
+            <el-option
+              v-for="opt in flowControlOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
+      </div>
 
       <el-divider content-position="left">继电器参数</el-divider>
-      <el-form-item label="路数">
+      <el-form-item label="继电器路数">
         <el-input-number
           v-model="form.relay.channels"
           :min="1"
           :max="32"
-          style="width: 120px"
         />
       </el-form-item>
-      <el-form-item label="ON 指令 (HEX)">
+      <el-form-item label="开启指令 (HEX)">
         <el-input
           v-model="onCommandHex"
           placeholder="A0 01 01 A2"
@@ -192,7 +193,7 @@ function handleClose(): void {
         />
         <p class="form-hint">空格分隔的十六进制字节，例如 A0 01 01 A2</p>
       </el-form-item>
-      <el-form-item label="OFF 指令 (HEX)">
+      <el-form-item label="关闭指令 (HEX)">
         <el-input
           v-model="offCommandHex"
           placeholder="A0 01 00 A1"
@@ -214,12 +215,12 @@ function handleClose(): void {
         />
         <el-input
           v-model="rule.vendorId"
-          placeholder="VID (1A86)"
+          placeholder="厂商编号 (VID)"
           style="width: 110px"
         />
         <el-input
           v-model="rule.productId"
-          placeholder="PID (7523)"
+          placeholder="产品编号 (PID)"
           style="width: 110px"
         />
         <el-button
@@ -273,8 +274,33 @@ function handleClose(): void {
 
 .rule-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.settings-parameter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+
+.settings-parameter-grid :deep(.el-select) {
+  width: 100%;
+}
+
+.parameter-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 560px) {
+  .settings-parameter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .parameter-wide {
+    grid-column: auto;
+  }
 }
 </style>

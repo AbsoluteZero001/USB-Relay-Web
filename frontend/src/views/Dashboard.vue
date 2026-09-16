@@ -7,6 +7,7 @@ import {
   connectRelay,
   disconnectRelay,
   getApiErrorMessage,
+  getAppConfig,
   getHealth,
   getRelayStatus,
   getSerialStatus,
@@ -19,6 +20,7 @@ import {
   turnRelayOff,
   turnRelayOn,
   type AuditLogEntry,
+  type AppConfig,
   type RelayActionResponse,
   type RelayStatus,
   type SerialConnectionState,
@@ -31,6 +33,7 @@ import SerialPanel from "../components/SerialPanel.vue";
 import SettingsPanel from "../components/SettingsPanel.vue";
 
 const settingsVisible = ref(false);
+const appConfig = ref<AppConfig>(getAppConfig());
 
 type ActiveOperation = "connect" | "disconnect" | "on" | "off" | null;
 type OperationStatus = "idle" | "pending" | "success" | "failed";
@@ -244,6 +247,10 @@ async function loadLogs(): Promise<void> {
   }
 }
 
+function refreshAppConfig(): void {
+  appConfig.value = getAppConfig();
+}
+
 async function clearOperationLogs(): Promise<void> {
   if (logsClearing.value || auditLogs.value.length === 0) {
     return;
@@ -350,7 +357,7 @@ async function runRelayAction(
 
   const commandHex = actionName === "ON" ? "A0 01 01 A2" : "A0 01 00 A1";
   activeOperation.value = actionName === "ON" ? "on" : "off";
-  recordOperation("Relay 1", actionName, commandHex, "发送中", "pending");
+  recordOperation("继电器 1", actionName, commandHex, "发送中", "pending");
 
   try {
     const result = await request();
@@ -359,7 +366,7 @@ async function runRelayAction(
     connectionMessage.value = `已连接 ${result.status.port ?? ""}`.trim();
     errorMessage.value = "";
     recordOperation(
-      "Relay 1",
+      "继电器 1",
       actionName,
       result.command,
       result.message,
@@ -368,7 +375,7 @@ async function runRelayAction(
     await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
-    recordOperation("Relay 1", actionName, commandHex, message, "failed");
+    recordOperation("继电器 1", actionName, commandHex, message, "failed");
     await refreshStatus();
     showError(message);
     await loadLogs();
@@ -379,6 +386,7 @@ async function runRelayAction(
 
 onMounted(async () => {
   await initApp();
+  refreshAppConfig();
   await Promise.all([loadPorts(), refreshStatus(), loadLogs()]);
   // Attempt auto-connect if enabled in config (non-blocking).
   tryAutoConnect().catch(() => {
@@ -393,9 +401,9 @@ onMounted(async () => {
       <div class="topbar-title">
         <span class="brand-mark"><Connection /></span>
         <div>
-          <p class="section-label">LOCAL HARDWARE CONTROL</p>
-          <h1>USB Relay Control</h1>
-          <p class="topbar-subtitle">纯前端 · Web Serial API 控制台</p>
+          <p class="section-label">本地硬件控制</p>
+          <h1>USB 继电器控制台</h1>
+          <p class="topbar-subtitle">浏览器串口控制 · 无需后端服务</p>
         </div>
       </div>
       <div class="topbar-summary">
@@ -408,16 +416,17 @@ onMounted(async () => {
           <strong>{{ currentDevice }}</strong>
         </div>
         <div class="backend-state">
-          <span>Web Serial</span>
+          <span>浏览器串口</span>
           <el-tag :type="serialTagType" effect="dark">
             {{ serialLabel }}
           </el-tag>
         </div>
-        <el-tooltip content="设备 / 继电器设置" placement="bottom">
+        <el-tooltip content="打开设备设置" placement="bottom">
           <el-button
             class="settings-btn"
             :icon="Setting"
             circle
+            aria-label="打开设备设置"
             @click="settingsVisible = true"
           />
         </el-tooltip>
@@ -451,6 +460,7 @@ onMounted(async () => {
         :scanning="scanning"
         :connection-state="connectionState"
         :connection-message="connectionMessage"
+        :serial-options="appConfig.relay.serial"
         :active-operation="
           activeOperation === 'connect' || activeOperation === 'disconnect'
             ? activeOperation
@@ -516,6 +526,9 @@ onMounted(async () => {
       @clear="clearOperationLogs"
     />
 
-    <SettingsPanel v-model:visible="settingsVisible" />
+    <SettingsPanel
+      v-model:visible="settingsVisible"
+      @saved="refreshAppConfig"
+    />
   </div>
 </template>

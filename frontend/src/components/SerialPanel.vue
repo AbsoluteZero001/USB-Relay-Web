@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { Connection, Refresh, SwitchButton } from "@element-plus/icons-vue";
 
 import type { SerialPortInfo } from "../api/relay";
+import type { SerialOpenOptions } from "../services/serial/types";
 
 type SerialConnectionState =
   | "disconnected"
@@ -19,6 +20,7 @@ const props = defineProps<{
   scanning: boolean;
   connectionState: SerialConnectionState;
   connectionMessage: string;
+  serialOptions: SerialOpenOptions;
   activeOperation: "connect" | "disconnect" | null;
 }>();
 
@@ -35,6 +37,24 @@ const selectedPortInfo = computed(
 
 const displayPort = computed(
   () => props.connectedPort || props.selectedPort || "未选择",
+);
+
+const parityLabels: Record<SerialOpenOptions["parity"], string> = {
+  none: "无校验",
+  even: "偶校验",
+  odd: "奇校验",
+  mark: "标记校验",
+  space: "空格校验",
+};
+
+const dataFormat = computed(
+  () =>
+    `${props.serialOptions.dataBits}${props.serialOptions.parity === "none" ? "N" : props.serialOptions.parity[0].toUpperCase()}${props.serialOptions.stopBits}`,
+);
+
+const dataFormatDetail = computed(
+  () =>
+    `${props.serialOptions.dataBits} 数据位 · ${parityLabels[props.serialOptions.parity]} · ${props.serialOptions.stopBits} 停止位`,
 );
 
 const busy = computed(() => props.activeOperation !== null);
@@ -74,7 +94,7 @@ function handlePortChange(value: string): void {
 
 function portLabel(port: SerialPortInfo): string {
   const current = port.is_current || port.port === props.connectedPort;
-  return `${port.port} · ${port.description}${current ? " · 当前" : ""}`;
+  return `${port.port} · ${port.description}${current ? " · 当前设备" : ""}`;
 }
 </script>
 
@@ -82,7 +102,7 @@ function portLabel(port: SerialPortInfo): string {
   <section class="panel serial-panel">
     <header class="panel-header">
       <div>
-        <p class="section-label">SERIAL LINK</p>
+        <p class="section-label">串口通信</p>
         <h2>串口连接</h2>
       </div>
       <el-tag :type="stateTagType" effect="dark" size="small">
@@ -123,20 +143,23 @@ function portLabel(port: SerialPortInfo): string {
 
     <dl class="device-meta">
       <div>
+        <dt>波特率</dt>
+        <dd>{{ serialOptions.baudRate }} 波特</dd>
+      </div>
+      <div>
+        <dt>数据格式</dt>
+        <dd>
+          {{ dataFormat }}
+          <small>{{ dataFormatDetail }}</small>
+        </dd>
+      </div>
+      <div>
         <dt>设备</dt>
         <dd>{{ displayPort }}</dd>
       </div>
       <div>
         <dt>型号</dt>
         <dd>{{ selectedPortInfo?.description || "—" }}</dd>
-      </div>
-      <div>
-        <dt>波特率</dt>
-        <dd>9600 baud</dd>
-      </div>
-      <div>
-        <dt>格式</dt>
-        <dd>8N1</dd>
       </div>
       <div class="meta-wide">
         <dt>状态</dt>

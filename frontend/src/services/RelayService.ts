@@ -252,7 +252,8 @@ export class RelayService {
     }
 
     this.relayState = target;
-    const detail = `Relay 1 ${action} 指令发送成功`;
+    const actionLabel = action === "ON" ? "开启" : "关闭";
+    const detail = `继电器 1 ${actionLabel}指令发送成功`;
     this.record(
       action,
       `RELAY_${action}`,
