@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Connection, WarningFilled } from "@element-plus/icons-vue";
+import { Connection, Setting, WarningFilled } from "@element-plus/icons-vue";
 
 import {
   clearAuditLogs,
@@ -10,10 +10,12 @@ import {
   getHealth,
   getRelayStatus,
   getSerialStatus,
+  initApp,
   isWebSerialSupported,
   listAuditLogs,
   listSerialPorts,
   requestSerialPort,
+  tryAutoConnect,
   turnRelayOff,
   turnRelayOn,
   type AuditLogEntry,
@@ -26,6 +28,9 @@ import {
 import OperationLog from "../components/OperationLog.vue";
 import RelayCard from "../components/RelayCard.vue";
 import SerialPanel from "../components/SerialPanel.vue";
+import SettingsPanel from "../components/SettingsPanel.vue";
+
+const settingsVisible = ref(false);
 
 type ActiveOperation = "connect" | "disconnect" | "on" | "off" | null;
 type OperationStatus = "idle" | "pending" | "success" | "failed";
@@ -373,7 +378,12 @@ async function runRelayAction(
 }
 
 onMounted(async () => {
+  await initApp();
   await Promise.all([loadPorts(), refreshStatus(), loadLogs()]);
+  // Attempt auto-connect if enabled in config (non-blocking).
+  tryAutoConnect().catch(() => {
+    /* auto-connect is best-effort */
+  });
 });
 </script>
 
@@ -403,6 +413,14 @@ onMounted(async () => {
             {{ serialLabel }}
           </el-tag>
         </div>
+        <el-tooltip content="设备 / 继电器设置" placement="bottom">
+          <el-button
+            class="settings-btn"
+            :icon="Setting"
+            circle
+            @click="settingsVisible = true"
+          />
+        </el-tooltip>
       </div>
     </header>
 
@@ -497,5 +515,7 @@ onMounted(async () => {
       @refresh="loadLogs"
       @clear="clearOperationLogs"
     />
+
+    <SettingsPanel v-model:visible="settingsVisible" />
   </div>
 </template>
