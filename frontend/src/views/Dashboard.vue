@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { Connection, WarningFilled } from "@element-plus/icons-vue";
 
 import {
@@ -10,8 +10,10 @@ import {
   getHealth,
   getRelayStatus,
   getSerialStatus,
+  isWebSerialSupported,
   listAuditLogs,
   listSerialPorts,
+  requestSerialPort,
   turnRelayOff,
   turnRelayOn,
   type AuditLogEntry,
@@ -57,7 +59,7 @@ const emptySerialStatus: SerialStatus = {
 
 const ports = ref<SerialPortInfo[]>([]);
 const selectedPort = ref("");
-const backendOnline = ref(false);
+const webSerialSupported = ref(isWebSerialSupported());
 const scanning = ref(false);
 const activeOperation = ref<ActiveOperation>(null);
 const connectionState = ref<UiSerialConnectionState>("disconnected");
@@ -77,15 +79,14 @@ const lastOperation = ref<OperationRecord>({
   status: "idle",
 });
 
-let statusTimer: number | undefined;
-let statusRequestInFlight = false;
-
 const operationInProgress = computed(
   () => activeOperation.value !== null,
 );
-const backendLabel = computed(() => (backendOnline.value ? "在线" : "离线"));
-const backendTagType = computed<"success" | "danger">(() =>
-  backendOnline.value ? "success" : "danger",
+const serialLabel = computed(() =>
+  webSerialSupported.value ? "可用" : "不支持",
+);
+const serialTagType = computed<"success" | "danger">(() =>
+  webSerialSupported.value ? "success" : "danger",
 );
 const currentPort = computed(
   () => serialStatus.value.port || selectedPort.value || "—",
@@ -148,6 +149,27 @@ function showError(message: string): void {
   connectionMessage.value = serialStatus.value.detail || "串口异常";
 }
 
+function applySerialStatus(next: SerialStatus): void {
+  serialStatus.value = next;
+  if (next.state === "connected") {
+    connectionState.value = "connected";
+    connectionMessage.value = `已连接 ${next.port ?? ""}`.trim();
+  } else if (next.state === "connecting") {
+    connectionState.value = "connecting";
+    connectionMessage.value = "正在连接串口";
+  } else if (next.state === "error") {
+    connectionState.value =
+      next.error_code === "SERIAL_DEVICE_DISCONNECTED"
+        ? "device_lost"
+        : "error";
+    connectionMessage.value = next.detail || "串口连接异常";
+    errorMessage.value = next.detail || "串口连接异常，请重新连接";
+  } else {
+    connectionState.value = "disconnected";
+    connectionMessage.value = "未连接";
+  }
+}
+
 async function loadPorts(): Promise<void> {
   if (scanning.value) {
     return;
@@ -158,7 +180,6 @@ async function loadPorts(): Promise<void> {
   try {
     const nextPorts = await listSerialPorts();
     ports.value = nextPorts;
-    backendOnline.value = true;
 
     const previousStillExists = nextPorts.some(
       (port) => port.port === previousSelection,
@@ -167,18 +188,36 @@ async function loadPorts(): Promise<void> {
     if (!previousSelection) {
       selectedPort.value = nextPorts[0]?.port ?? "";
     } else if (!previousStillExists) {
-      errorMessage.value =
-        `串口 ${previousSelection} 已不存在，` +
-        "请检查设备连接后重试，未自动切换到其他端口";
-      connectionState.value = "error";
-      connectionMessage.value = "设备已不存在";
-      if (!relayStatus.value.connected) {
-        selectedPort.value = "";
-      }
+      selectedPort.value = "";
     }
   } catch (error) {
-    backendOnline.value = false;
     showError(getApiErrorMessage(error));
+  } finally {
+    scanning.value = false;
+  }
+}
+
+/**
+ * Refresh button: open the browser serial-port picker to grant a new device,
+ * then reload the granted-port list and auto-select the newly added port.
+ */
+async function requestNewPort(): Promise<void> {
+  if (scanning.value || !webSerialSupported.value) {
+    return;
+  }
+  scanning.value = true;
+  try {
+    const added = await requestSerialPort();
+    await loadPorts();
+    selectedPort.value = added.port;
+    errorMessage.value = "";
+  } catch (error) {
+    // User cancelled the picker — not a real error, just ignore silently
+    // unless it was an actual failure.
+    const message = getApiErrorMessage(error);
+    if (message !== "已取消串口选择") {
+      showError(message);
+    }
   } finally {
     scanning.value = false;
   }
@@ -193,9 +232,7 @@ async function loadLogs(): Promise<void> {
   try {
     const page = await listAuditLogs(20, 0);
     auditLogs.value = page.items;
-    backendOnline.value = true;
   } catch (error) {
-    backendOnline.value = false;
     errorMessage.value = getApiErrorMessage(error);
   } finally {
     logsLoading.value = false;
@@ -218,12 +255,7 @@ async function clearOperationLogs(): Promise<void> {
   }
 }
 
-async function refreshStatus(force = false): Promise<void> {
-  if (statusRequestInFlight || (operationInProgress.value && !force)) {
-    return;
-  }
-
-  statusRequestInFlight = true;
+async function refreshStatus(): Promise<void> {
   try {
     const [health, nextRelayStatus, nextSerialStatus] = await Promise.all([
       getHealth(),
@@ -231,38 +263,14 @@ async function refreshStatus(force = false): Promise<void> {
       getSerialStatus(),
     ]);
     relayStatus.value = nextRelayStatus;
-    serialStatus.value = nextSerialStatus;
-    backendOnline.value = health.status === "ok";
-
-    if (nextSerialStatus.state === "connected") {
-      connectionState.value = "connected";
-      connectionMessage.value =
-        `已连接 ${nextSerialStatus.port ?? ""}`.trim();
-    } else if (nextSerialStatus.state === "connecting") {
-      connectionState.value = "connecting";
-      connectionMessage.value = "正在连接串口";
-    } else if (nextSerialStatus.state === "error") {
-      connectionState.value =
-        nextSerialStatus.error_code === "SERIAL_DEVICE_DISCONNECTED"
-          ? "device_lost"
-          : "error";
-      connectionMessage.value =
-        nextSerialStatus.detail || "串口连接异常";
-      errorMessage.value =
-        nextSerialStatus.detail || "串口连接异常，请重新连接";
-    } else {
-      connectionState.value = "disconnected";
-      connectionMessage.value = "未连接";
-    }
+    applySerialStatus(nextSerialStatus);
+    webSerialSupported.value = health.status === "ok";
   } catch (error) {
-    backendOnline.value = false;
     relayStatus.value = { ...emptyRelayStatus };
     serialStatus.value = { ...emptySerialStatus };
     connectionState.value = "error";
-    connectionMessage.value = "后端不可用";
+    connectionMessage.value = "状态读取失败";
     errorMessage.value = getApiErrorMessage(error);
-  } finally {
-    statusRequestInFlight = false;
   }
 }
 
@@ -278,16 +286,15 @@ async function connect(): Promise<void> {
   const port = selectedPort.value;
   try {
     relayStatus.value = await connectRelay(port);
-    backendOnline.value = true;
     connectionState.value = "connected";
-    connectionMessage.value = `已连接 ${port}`;
+    connectionMessage.value = `已连接 ${relayStatus.value.port ?? port}`;
     errorMessage.value = "";
     recordOperation("串口设备", "CONNECT", "—", `已连接 ${port}`, "success");
-    await refreshStatus(true);
+    await refreshStatus();
     await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
-    await refreshStatus(true);
+    await refreshStatus();
     showError(message);
     recordOperation("串口设备", "CONNECT", "—", message, "failed");
     await loadLogs();
@@ -305,7 +312,6 @@ async function disconnect(): Promise<void> {
   const port = relayStatus.value.port ?? selectedPort.value;
   try {
     relayStatus.value = await disconnectRelay();
-    backendOnline.value = true;
     connectionState.value = "disconnected";
     connectionMessage.value = "未连接";
     errorMessage.value = "";
@@ -316,11 +322,11 @@ async function disconnect(): Promise<void> {
       `已断开 ${port || "串口"}`,
       "success",
     );
-    await refreshStatus(true);
+    await refreshStatus();
     await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
-    await refreshStatus(true);
+    await refreshStatus();
     showError(message);
     recordOperation("串口设备", "DISCONNECT", "—", message, "failed");
     await loadLogs();
@@ -344,7 +350,6 @@ async function runRelayAction(
   try {
     const result = await request();
     relayStatus.value = result.status;
-    backendOnline.value = true;
     connectionState.value = "connected";
     connectionMessage.value = `已连接 ${result.status.port ?? ""}`.trim();
     errorMessage.value = "";
@@ -359,7 +364,7 @@ async function runRelayAction(
   } catch (error) {
     const message = getApiErrorMessage(error);
     recordOperation("Relay 1", actionName, commandHex, message, "failed");
-    await refreshStatus(true);
+    await refreshStatus();
     showError(message);
     await loadLogs();
   } finally {
@@ -369,15 +374,6 @@ async function runRelayAction(
 
 onMounted(async () => {
   await Promise.all([loadPorts(), refreshStatus(), loadLogs()]);
-  statusTimer = window.setInterval(() => {
-    void refreshStatus();
-  }, 2500);
-});
-
-onUnmounted(() => {
-  if (statusTimer !== undefined) {
-    window.clearInterval(statusTimer);
-  }
 });
 </script>
 
@@ -389,7 +385,7 @@ onUnmounted(() => {
         <div>
           <p class="section-label">LOCAL HARDWARE CONTROL</p>
           <h1>USB Relay Control</h1>
-          <p class="topbar-subtitle">本机串口设备控制台</p>
+          <p class="topbar-subtitle">纯前端 · Web Serial API 控制台</p>
         </div>
       </div>
       <div class="topbar-summary">
@@ -402,9 +398,9 @@ onUnmounted(() => {
           <strong>{{ currentDevice }}</strong>
         </div>
         <div class="backend-state">
-          <span>Backend</span>
-          <el-tag :type="backendTagType" effect="dark">
-            {{ backendLabel }}
+          <span>Web Serial</span>
+          <el-tag :type="serialTagType" effect="dark">
+            {{ serialLabel }}
           </el-tag>
         </div>
       </div>
@@ -415,6 +411,16 @@ onUnmounted(() => {
       <div>
         <strong>操作失败</strong>
         <p>{{ errorMessage }}</p>
+      </div>
+    </section>
+
+    <section v-if="!webSerialSupported" class="error-banner" role="alert">
+      <WarningFilled class="error-icon" />
+      <div>
+        <strong>浏览器不支持 Web Serial API</strong>
+        <p>
+          请使用 Chrome 或 Edge (89+)，并通过 https 或 localhost 访问本页面。
+        </p>
       </div>
     </section>
 
@@ -432,7 +438,7 @@ onUnmounted(() => {
             ? activeOperation
             : null
         "
-        @refresh="loadPorts"
+        @refresh="requestNewPort"
         @connect="connect"
         @disconnect="disconnect"
       />

@@ -109,7 +109,7 @@ function portLabel(port: SerialPortInfo): string {
             :value="port.port"
           />
         </el-select>
-        <el-tooltip content="刷新串口列表" placement="top">
+        <el-tooltip content="选择并添加串口设备" placement="top">
           <el-button
             :icon="Refresh"
             :loading="scanning"
