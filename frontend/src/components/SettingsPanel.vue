@@ -223,19 +223,39 @@ function handleClose(): void {
       </div>
 
       <el-divider content-position="left">继电器参数</el-divider>
-      <el-form-item label="ON 指令" :error="onCommandError">
+      <div class="settings-parameter-grid">
+        <el-form-item label="协议">
+          <el-select v-model="form.relay.protocol">
+            <el-option label="自定义 HEX" value="custom_hex" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="通道数量">
+          <el-input-number
+            v-model="form.relay.channels"
+            :min="1"
+            :max="32"
+          />
+        </el-form-item>
+      </div>
+      <el-form-item label="ON 指令（HEX）" :error="onCommandError">
         <el-input
           v-model="onCommandHex"
           placeholder="A0 01 01 A2"
           :status="onCommandError ? 'error' : ''"
         />
+        <p class="form-hint">
+          请输入设备厂商提供的 HEX 串口控制指令，例如：A0 01 01 A2
+        </p>
       </el-form-item>
-      <el-form-item label="OFF 指令" :error="offCommandError">
+      <el-form-item label="OFF 指令（HEX）" :error="offCommandError">
         <el-input
           v-model="offCommandHex"
           placeholder="A0 01 00 A1"
           :status="offCommandError ? 'error' : ''"
         />
+        <p class="form-hint">
+          请输入设备厂商提供的 HEX 串口控制指令，例如：A0 01 00 A1
+        </p>
       </el-form-item>
 
       <el-divider content-position="left">连接行为</el-divider>
@@ -257,6 +277,13 @@ function handleClose(): void {
 </template>
 
 <style scoped>
+.form-hint {
+  margin: 5px 0 0;
+  color: #8fa09e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .form-hint-inline {
   margin-left: 12px;
   font-size: 13px;
