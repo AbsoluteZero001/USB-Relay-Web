@@ -184,7 +184,7 @@ button {
 }
 
 .summary-item span,
-.backend-state > span {
+.backend-state > span:not(.el-tag) {
   display: block;
   margin-bottom: 5px;
   color: #8fa09e;
@@ -213,7 +213,11 @@ button {
 }
 
 .backend-state .el-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   align-self: center;
+  line-height: 1;
 }
 
 .dashboard-grid {
