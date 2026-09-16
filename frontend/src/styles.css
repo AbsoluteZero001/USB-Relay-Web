@@ -172,8 +172,10 @@ button {
 
 .summary-item,
 .backend-state {
+  width: 180px;
   min-width: 0;
-  min-height: 58px;
+  height: 64px;
+  min-height: 64px;
   padding: 10px 14px;
   background: #213034;
   border: 1px solid #314145;
@@ -181,7 +183,8 @@ button {
 }
 
 .summary-item {
-  max-width: 230px;
+  max-width: none;
+  flex: 0 0 180px;
 }
 
 .summary-item span,
@@ -198,7 +201,7 @@ button {
 .summary-item strong {
   display: block;
   overflow: hidden;
-  max-width: 200px;
+  max-width: 152px;
   color: #f7faf9;
   font-size: 13px;
   text-overflow: ellipsis;
@@ -207,6 +210,7 @@ button {
 
 .backend-state {
   display: flex;
+  flex: 0 0 180px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -962,7 +966,7 @@ button {
 
   .summary-item {
     max-width: none;
-    flex: 1 1 180px;
+    flex: 0 0 180px;
   }
 
   .dashboard-grid {
@@ -993,6 +997,8 @@ button {
   .summary-item,
   .backend-state {
     max-width: none;
+    width: 100%;
+    flex: none;
   }
 
   .operation-fields {

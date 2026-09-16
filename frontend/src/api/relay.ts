@@ -75,11 +75,12 @@ export async function tryAutoConnect(): Promise<boolean> {
 }
 
 export function getAppConfig(): AppConfig {
-  return appServices.getConfig();
+  return JSON.parse(JSON.stringify(appServices.getConfig())) as AppConfig;
 }
 
 export async function updateAppConfig(config: AppConfig): Promise<void> {
-  await appServices.updateConfig(config);
+  const plainConfig = JSON.parse(JSON.stringify(config)) as AppConfig;
+  await appServices.updateConfig(plainConfig);
 }
 
 /** Allow callers (e.g. settings panel) to update the active relay config. */
