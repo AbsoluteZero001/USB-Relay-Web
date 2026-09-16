@@ -251,6 +251,7 @@ function refreshAppConfig(): void {
     selectedPort.value = appConfig.value.selectedPort;
   }
   manualDisconnect = false;
+  void refreshStatus();
   void loadPorts(true);
 }
 

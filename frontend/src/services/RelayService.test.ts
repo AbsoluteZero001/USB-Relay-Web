@@ -12,6 +12,10 @@ import type {
 class FakeAdapter implements SerialAdapter {
   readonly name = "Fake";
   readonly writes: number[][] = [];
+  readonly connections: Array<{
+    portId: string;
+    options: SerialOpenOptions;
+  }> = [];
   private connected = false;
 
   constructor(private readonly supported = true) {}
@@ -24,7 +28,8 @@ class FakeAdapter implements SerialAdapter {
     return [];
   }
 
-  async connect(_portId: string, _options: SerialOpenOptions): Promise<void> {
+  async connect(portId: string, options: SerialOpenOptions): Promise<void> {
+    this.connections.push({ portId, options });
     this.connected = true;
   }
 
@@ -86,5 +91,29 @@ describe("RelayService LCUS-1 compatibility", () => {
       serial_supported: false,
     });
     expect(supported.getHealth().serial_supported).toBe(true);
+  });
+
+  it("reopens the port with updated serial options", async () => {
+    const adapter = new FakeAdapter();
+    const relay = new RelayService(adapter, DEFAULT_CONFIG.relay);
+    await relay.connect("COM3");
+
+    relay.updateConfig({
+      ...DEFAULT_CONFIG.relay,
+      serial: {
+        ...DEFAULT_CONFIG.relay.serial,
+        baudRate: 115200,
+      },
+    });
+    await relay.reconnect("COM3");
+
+    expect(adapter.connections.map(({ portId }) => portId)).toEqual([
+      "COM3",
+      "COM3",
+    ]);
+    expect(adapter.connections.map(({ options }) => options.baudRate)).toEqual([
+      9600,
+      115200,
+    ]);
   });
 });

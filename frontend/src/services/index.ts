@@ -6,6 +6,12 @@ import type { AppConfig } from "./config/types";
 import { DEFAULT_CONFIG } from "./config/types";
 import { ConfigService } from "./config/ConfigService";
 import { findMatchingPort } from "./device-rules";
+import { getApiErrorMessage } from "./errors";
+
+export interface ConfigUpdateResult {
+  serialReconfigured: boolean;
+  serialReconfigureError: string | null;
+}
 
 /**
  * Top-level service coordinator.
@@ -52,10 +58,63 @@ class AppServices {
     return this.appConfig;
   }
 
-  async updateConfig(config: AppConfig): Promise<void> {
+  async updateConfig(config: AppConfig): Promise<ConfigUpdateResult> {
+    const previousConfig = this.appConfig;
+    const serialStatus = this.relay.getSerialStatus();
+    const connectedPort = serialStatus.connected
+      ? this.relay.getRelayStatus().port
+      : null;
+    const targetPort = config.selectedPort || connectedPort;
+    const serialOptionsChanged =
+      !this.serialOptionsEqual(
+        previousConfig.relay.serial,
+        config.relay.serial,
+      );
+    const targetPortChanged =
+      !!connectedPort &&
+      !!config.selectedPort &&
+      config.selectedPort !== connectedPort;
+    const shouldReconnect =
+      serialStatus.connected &&
+      !!targetPort &&
+      (serialOptionsChanged || targetPortChanged);
+
     this.appConfig = config;
     this.relay.updateConfig(config.relay);
     await this.config.save(config);
+
+    if (!shouldReconnect || !targetPort) {
+      return {
+        serialReconfigured: false,
+        serialReconfigureError: null,
+      };
+    }
+
+    try {
+      await this.relay.reconnect(targetPort);
+      return {
+        serialReconfigured: true,
+        serialReconfigureError: null,
+      };
+    } catch (error) {
+      return {
+        serialReconfigured: false,
+        serialReconfigureError: getApiErrorMessage(error),
+      };
+    }
+  }
+
+  private serialOptionsEqual(
+    left: AppConfig["relay"]["serial"],
+    right: AppConfig["relay"]["serial"],
+  ): boolean {
+    return (
+      left.baudRate === right.baudRate &&
+      left.dataBits === right.dataBits &&
+      left.stopBits === right.stopBits &&
+      left.parity === right.parity &&
+      (left.flowControl ?? "none") === (right.flowControl ?? "none")
+    );
   }
 
   private scheduleReconnect(): void {

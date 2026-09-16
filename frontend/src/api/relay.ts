@@ -7,6 +7,7 @@
 //   - Browser  → Web Serial API
 
 import { appServices } from "../services";
+import type { ConfigUpdateResult } from "../services";
 import type {
   HealthResponse,
   RelayActionResponse,
@@ -48,9 +49,11 @@ export function getAppConfig(): AppConfig {
   return JSON.parse(JSON.stringify(appServices.getConfig())) as AppConfig;
 }
 
-export async function updateAppConfig(config: AppConfig): Promise<void> {
+export async function updateAppConfig(
+  config: AppConfig,
+): Promise<ConfigUpdateResult> {
   const plainConfig = JSON.parse(JSON.stringify(config)) as AppConfig;
-  await appServices.updateConfig(plainConfig);
+  return appServices.updateConfig(plainConfig);
 }
 
 export function isWebSerialSupported(): boolean {

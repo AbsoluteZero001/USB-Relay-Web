@@ -111,6 +111,12 @@ export class RelayService {
     return this.getRelayStatus();
   }
 
+  /** Reopen the current port so new serial options take effect immediately. */
+  async reconnect(portId: string): Promise<RelayStatus> {
+    await this.disconnect();
+    return this.connect(portId);
+  }
+
   async on(): Promise<RelayActionResponse> {
     return this.execute(this.config.onCommand, "on", "ON");
   }

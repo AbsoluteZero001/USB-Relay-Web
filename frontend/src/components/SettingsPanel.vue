@@ -127,11 +127,20 @@ async function handleSave(): Promise<void> {
   form.selectedPort = selectedPortValue.value || null;
 
   try {
-    await updateAppConfig({ ...form });
+    const result = await updateAppConfig({ ...form });
     emit("update:selectedPort", selectedPortValue.value);
-    ElMessage.success("配置已保存");
     emit("saved");
     emit("update:visible", false);
+
+    if (result.serialReconfigureError) {
+      ElMessage.warning(
+        `配置已保存，但串口重新应用失败：${result.serialReconfigureError}`,
+      );
+    } else if (result.serialReconfigured) {
+      ElMessage.success("配置已保存并立即生效");
+    } else {
+      ElMessage.success("配置已保存");
+    }
   } catch (error) {
     ElMessage.error(
       error instanceof Error ? error.message : "保存配置失败",
