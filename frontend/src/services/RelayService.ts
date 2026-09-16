@@ -6,6 +6,7 @@ import type {
 } from "./serial/types";
 import { AuditLogStore } from "./AuditLogStore";
 import { DEFAULT_CONFIG, type RelayConfig } from "./config/types";
+import { formatHexBytes } from "./hex";
 import {
   PortBusyError,
   SerialConnectionError,
@@ -39,14 +40,6 @@ export interface HealthResponse {
   serial_connected: boolean;
 }
 
-export type { RelayConfig } from "./config/types";
-
-function bytesToHex(value: Uint8Array | number[]): string {
-  return Array.from(value, (byte) =>
-    byte.toString(16).padStart(2, "0").toUpperCase(),
-  ).join(" ");
-}
-
 /**
  * High-level relay control service.
  *
@@ -71,10 +64,6 @@ export class RelayService {
   /** Replace the active config (e.g. after user changes settings). */
   updateConfig(config: RelayConfig): void {
     this.config = config;
-  }
-
-  getConfig(): RelayConfig {
-    return { ...this.config };
   }
 
   isSupported(): boolean {
@@ -184,14 +173,6 @@ export class RelayService {
     };
   }
 
-  listAuditLogs(limit: number, offset: number) {
-    return this.audit.list(limit, offset);
-  }
-
-  clearAuditLogs(): { deleted: number } {
-    return { deleted: this.audit.clear() };
-  }
-
   private async execute(
     command: number[],
     target: RelayState,
@@ -203,7 +184,7 @@ export class RelayService {
       this.record(
         action,
         `RELAY_${action}`,
-        bytesToHex(command),
+        formatHexBytes(command),
         this.connectedPort,
         "failed",
         error.message,
@@ -212,7 +193,7 @@ export class RelayService {
       throw error;
     }
 
-    const commandText = bytesToHex(command);
+    const commandText = formatHexBytes(command);
     try {
       await this.adapter.send(new Uint8Array(command));
     } catch (error) {

@@ -261,10 +261,6 @@ button {
   border-top: 3px solid var(--brand);
 }
 
-.log-panel {
-  border-top: 3px solid var(--teal);
-}
-
 .panel-header {
   display: flex;
   align-items: flex-start;
@@ -278,8 +274,7 @@ button {
   font-size: 20px;
 }
 
-.panel-header .el-tag,
-.operation-header .el-tag {
+.panel-header .el-tag {
   border-radius: 999px;
   font-weight: 700;
 }
@@ -739,191 +734,6 @@ button {
   flex: 0 0 auto;
 }
 
-.operation-result {
-  position: relative;
-  margin-top: 18px;
-  padding: 17px 20px 18px;
-  overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgb(25 40 42 / 5%);
-}
-
-.operation-result::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 4px;
-  content: "";
-  background: var(--brand);
-}
-
-.operation-result.operation-success::before {
-  background: var(--teal);
-}
-
-.operation-result.operation-failed::before {
-  background: var(--red);
-}
-
-.operation-result.operation-pending::before {
-  background: var(--blue);
-}
-
-.operation-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 13px;
-  border-bottom: 1px solid #e8eeec;
-}
-
-.operation-header .section-label {
-  margin: 0;
-}
-
-.operation-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 16px;
-  margin: 15px 0 0;
-}
-
-.operation-fields div {
-  min-width: 0;
-}
-
-.operation-fields dt {
-  margin-bottom: 6px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.operation-fields dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  color: #283537;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.operation-fields code {
-  display: inline-block;
-  padding: 5px 8px;
-  color: #eef4f2;
-  background: #283538;
-  border-radius: 5px;
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.log-panel {
-  margin-top: 18px;
-}
-
-.log-actions {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.log-table-wrap {
-  margin-top: 16px;
-  overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.log-table {
-  width: 100%;
-  min-width: 900px;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 12px;
-}
-
-.log-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 10px 11px;
-  color: #596765;
-  background: #f2f6f4;
-  border-bottom: 1px solid #d8e1de;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-align: left;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.log-table td {
-  max-width: 300px;
-  padding: 11px;
-  color: #344143;
-  background: #ffffff;
-  border-bottom: 1px solid #e8eeec;
-  vertical-align: middle;
-}
-
-.log-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.log-table tbody tr:hover td {
-  background: #f8fbfa;
-}
-
-.log-table code {
-  color: #283537;
-  font-family: Consolas, "Courier New", monospace;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.log-time,
-.log-error {
-  white-space: nowrap;
-}
-
-.log-error {
-  color: #a6423d !important;
-  font-family: Consolas, "Courier New", monospace;
-}
-
-.log-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.empty-log {
-  padding: 30px !important;
-  color: var(--muted) !important;
-  background: #fafcfb !important;
-  text-align: center;
-}
-
-.result-label {
-  font-weight: 800;
-}
-
-.result-label.success {
-  color: #18765f;
-}
-
-.result-label.failed {
-  color: #b63f3a;
-}
-
 @keyframes status-pulse {
   0% {
     opacity: 0.8;
@@ -1001,15 +811,6 @@ button {
     flex: none;
   }
 
-  .operation-fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-  }
-
-  .operation-message {
-    grid-column: 1 / -1;
-  }
-
   .backend-state {
     align-items: center;
   }
@@ -1050,17 +851,6 @@ button {
     width: 100%;
   }
 
-  .operation-result {
-    padding: 15px;
-  }
-
-  .operation-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .operation-message {
-    grid-column: auto;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

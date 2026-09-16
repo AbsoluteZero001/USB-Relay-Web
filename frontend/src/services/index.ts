@@ -58,22 +58,6 @@ class AppServices {
     await this.config.save(config);
   }
 
-  /** Scan ports and auto-connect to the first matching device. */
-  async tryAutoConnect(): Promise<boolean> {
-    if (!this.appConfig.autoConnect) return false;
-    try {
-      const ports = await this.relay.listPorts();
-      const match = findMatchingPort(ports, this.appConfig.deviceRules);
-      if (match) {
-        await this.relay.connect(match.port.port);
-        return true;
-      }
-    } catch {
-      // Auto-connect failures are non-fatal; user can connect manually.
-    }
-    return false;
-  }
-
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(async () => {

@@ -72,20 +72,3 @@ export function findMatchingPort(
   }
   return null;
 }
-
-/** Return all ports that match at least one rule, with the matched rule. */
-export function findMatchingPorts(
-  ports: SerialPortInfo[],
-  rules: DeviceMatchRule[],
-): { port: SerialPortInfo; rule: DeviceMatchRule }[] {
-  const results: { port: SerialPortInfo; rule: DeviceMatchRule }[] = [];
-  for (const port of ports) {
-    for (const rule of rules) {
-      if (matchRule(port, rule)) {
-        results.push({ port, rule });
-        break;
-      }
-    }
-  }
-  return results;
-}

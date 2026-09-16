@@ -18,14 +18,6 @@ export class WebSerialUnsupportedError extends ServiceError {
   }
 }
 
-export class SerialUserCancelledError extends ServiceError {
-  code = "SERIAL_USER_CANCELLED";
-  constructor() {
-    super("已取消串口选择");
-    this.name = "SerialUserCancelledError";
-  }
-}
-
 export class SerialPortNotFoundError extends ServiceError {
   code = "SERIAL_PORT_NOT_FOUND";
   constructor(message: string) {

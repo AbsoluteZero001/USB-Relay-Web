@@ -223,28 +223,6 @@ function handleClose(): void {
       </div>
 
       <el-divider content-position="left">继电器参数</el-divider>
-      <el-form-item label="协议模式">
-        <el-select v-model="form.relay.protocol">
-          <el-option label="自定义 HEX" value="custom_hex" />
-          <el-option label="Modbus RTU（暂未实现）" disabled value="modbus_rtu" />
-        </el-select>
-      </el-form-item>
-      <div class="settings-parameter-grid">
-        <el-form-item label="通道数">
-          <el-input-number
-            v-model="form.relay.channels"
-            :min="1"
-            :max="32"
-          />
-        </el-form-item>
-        <el-form-item label="当前通道">
-          <el-input-number
-            v-model="form.relay.currentChannel"
-            :min="1"
-            :max="form.relay.channels"
-          />
-        </el-form-item>
-      </div>
       <el-form-item label="ON 指令" :error="onCommandError">
         <el-input
           v-model="onCommandHex"

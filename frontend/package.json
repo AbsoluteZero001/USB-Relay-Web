@@ -10,9 +10,9 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "build": "vue-tsc --noEmit && vite build",
+    "clean": "node scripts/clean.cjs",
     "preview": "vite preview",
-    "electron:dev": "vite",
-    "electron:build": "vue-tsc --noEmit && vite build && electron-builder",
+    "dist": "npm run clean && npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -25,7 +25,6 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@vitejs/plugin-vue": "^5.2.1",
-    "cross-env": "^7.0.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "typescript": "~5.7.2",
@@ -33,8 +32,7 @@
     "vite-plugin-electron": "^0.28.8",
     "vite-plugin-electron-renderer": "^0.14.6",
     "vitest": "^5.0.1",
-    "vue-tsc": "^2.2.0",
-    "wait-on": "^8.0.1"
+    "vue-tsc": "^2.2.0"
   },
   "build": {
     "appId": "com.usbrelay.console",

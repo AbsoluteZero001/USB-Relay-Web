@@ -1,4 +1,3 @@
-import { app } from "electron";
 import Store from "electron-store";
 import type { AppConfig } from "../../src/services/config/types";
 import { DEFAULT_CONFIG } from "../../src/services/config/types";
@@ -25,13 +24,3 @@ export function loadConfig(): AppConfig {
 export function saveConfig(config: AppConfig): void {
   store.set(normalizeAppConfig(config));
 }
-
-export function getConfigPath(): string {
-  return store.path;
-}
-
-// Expose config path for debugging / user reference.
-app.whenReady().then(() => {
-  // eslint-disable-next-line no-console
-  console.log(`[config] stored at: ${store.path}`);
-});
