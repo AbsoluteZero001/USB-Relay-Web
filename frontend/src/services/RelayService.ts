@@ -1,11 +1,11 @@
 import type { SerialAdapter } from "./serial/SerialAdapter";
 import { isRequestable } from "./serial/SerialAdapter";
 import type {
-  SerialOpenOptions,
   SerialPortInfo,
   SerialStatus,
 } from "./serial/types";
 import { AuditLogStore } from "./AuditLogStore";
+import { DEFAULT_CONFIG, type RelayConfig } from "./config/types";
 import {
   PortBusyError,
   SerialConnectionError,
@@ -39,29 +39,7 @@ export interface HealthResponse {
   serial_connected: boolean;
 }
 
-export interface RelayConfig {
-  /** Number of relay channels. */
-  channels: number;
-  /** ON command bytes for channel 1 (LCUS-1 default). */
-  onCommand: number[];
-  /** OFF command bytes for channel 1 (LCUS-1 default). */
-  offCommand: number[];
-  /** Serial port open options. */
-  serial: SerialOpenOptions;
-}
-
-export const DEFAULT_RELAY_CONFIG: RelayConfig = {
-  channels: 1,
-  onCommand: [0xa0, 0x01, 0x01, 0xa2],
-  offCommand: [0xa0, 0x01, 0x00, 0xa1],
-  serial: {
-    baudRate: 9600,
-    dataBits: 8,
-    stopBits: 1,
-    parity: "none",
-    flowControl: "none",
-  },
-};
+export type { RelayConfig } from "./config/types";
 
 function bytesToHex(value: Uint8Array | number[]): string {
   return Array.from(value, (byte) =>
@@ -82,7 +60,10 @@ export class RelayService {
   private connectedPort: string | null = null;
   private audit = new AuditLogStore();
 
-  constructor(adapter: SerialAdapter, config: RelayConfig = DEFAULT_RELAY_CONFIG) {
+  constructor(
+    adapter: SerialAdapter,
+    config: RelayConfig = DEFAULT_CONFIG.relay,
+  ) {
     this.adapter = adapter;
     this.config = config;
   }
@@ -252,7 +233,8 @@ export class RelayService {
     }
 
     this.relayState = target;
-    const detail = `继电器 1 ${action} 指令发送成功`;
+    const channel = this.config.currentChannel || 1;
+    const detail = `继电器 ${channel} ${action} 指令发送成功`;
     this.record(
       action,
       `RELAY_${action}`,

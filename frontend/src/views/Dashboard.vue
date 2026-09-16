@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { Connection, Setting, WarningFilled } from "@element-plus/icons-vue";
 
 import {
-  clearAuditLogs,
   connectRelay,
   disconnectRelay,
   getApiErrorMessage,
@@ -13,12 +12,10 @@ import {
   getSerialStatus,
   initApp,
   isWebSerialSupported,
-  listAuditLogs,
   listSerialPorts,
   requestSerialPort,
   turnRelayOff,
   turnRelayOn,
-  type AuditLogEntry,
   type AppConfig,
   type RelayActionResponse,
   type RelayStatus,
@@ -27,7 +24,6 @@ import {
   type SerialStatus,
 } from "../api/relay";
 import { findMatchingPort } from "../services/device-rules";
-import OperationLog from "../components/OperationLog.vue";
 import RelayCard from "../components/RelayCard.vue";
 import SerialPanel from "../components/SerialPanel.vue";
 import SettingsPanel from "../components/SettingsPanel.vue";
@@ -36,17 +32,7 @@ const settingsVisible = ref(false);
 const appConfig = ref<AppConfig>(getAppConfig());
 
 type ActiveOperation = "connect" | "disconnect" | "on" | "off" | null;
-type OperationStatus = "idle" | "pending" | "success" | "failed";
 type UiSerialConnectionState = SerialConnectionState | "device_lost";
-
-interface OperationRecord {
-  time: string;
-  target: string;
-  action: string;
-  commandHex: string;
-  result: string;
-  status: OperationStatus;
-}
 
 const emptyRelayStatus: RelayStatus = {
   connected: false,
@@ -75,17 +61,6 @@ const connectionMessage = ref("未连接");
 const errorMessage = ref("");
 const relayStatus = ref<RelayStatus>({ ...emptyRelayStatus });
 const serialStatus = ref<SerialStatus>({ ...emptySerialStatus });
-const auditLogs = ref<AuditLogEntry[]>([]);
-const logsLoading = ref(false);
-const logsClearing = ref(false);
-const lastOperation = ref<OperationRecord>({
-  time: "—",
-  target: "—",
-  action: "—",
-  commandHex: "—",
-  result: "尚未执行操作",
-  status: "idle",
-});
 
 const PORT_POLL_INTERVAL_MS = 500;
 const AUTO_CONNECT_RETRY_MS = 2000;
@@ -120,49 +95,6 @@ const detectedRelayPort = computed(
   () =>
     findMatchingPort(ports.value, appConfig.value.deviceRules)?.port.port ?? null,
 );
-const operationTagType = computed<"success" | "danger" | "info">(() => {
-  if (lastOperation.value.status === "success") {
-    return "success";
-  }
-  if (lastOperation.value.status === "failed") {
-    return "danger";
-  }
-  return "info";
-});
-const operationStatusLabel = computed(() => {
-  if (lastOperation.value.status === "success") {
-    return "成功";
-  }
-  if (lastOperation.value.status === "failed") {
-    return "失败";
-  }
-  if (lastOperation.value.status === "pending") {
-    return "发送中";
-  }
-  return "未执行";
-});
-
-function timeText(): string {
-  return new Date().toLocaleTimeString("zh-CN", { hour12: false });
-}
-
-function recordOperation(
-  target: string,
-  action: string,
-  commandHex: string,
-  result: string,
-  status: OperationStatus,
-): void {
-  lastOperation.value = {
-    time: timeText(),
-    target,
-    action,
-    commandHex,
-    result,
-    status,
-  };
-}
-
 function showError(message: string): void {
   errorMessage.value = message;
   connectionState.value = "error";
@@ -219,25 +151,10 @@ async function autoConnectDetectedPort(port: string): Promise<void> {
     connectionState.value = "connected";
     connectionMessage.value = `已自动连接 ${relayStatus.value.port ?? port}`;
     errorMessage.value = "";
-    recordOperation(
-      "串口设备",
-      "CONNECT",
-      "—",
-      `已自动连接 ${port}`,
-      "success",
-    );
     await refreshStatus();
-    await loadLogs();
   } catch (error) {
     autoConnectLastFailureAt = Date.now();
     await refreshStatus();
-    recordOperation(
-      "串口设备",
-      "CONNECT",
-      "—",
-      getApiErrorMessage(error),
-      "failed",
-    );
   } finally {
     activeOperation.value = null;
     autoConnectInFlight = false;
@@ -259,13 +176,21 @@ async function loadPorts(background = false): Promise<void> {
     ports.value = nextPorts;
     const preferredPort =
       findMatchingPort(nextPorts, appConfig.value.deviceRules)?.port.port ?? null;
+    const configuredPort = appConfig.value.selectedPort;
+    const configuredPortExists =
+      !!configuredPort &&
+      nextPorts.some((port) => port.port === configuredPort);
 
     const previousStillExists = nextPorts.some(
       (port) => port.port === previousSelection,
     );
 
     if (!previousSelection) {
-      selectedPort.value = preferredPort ?? nextPorts[0]?.port ?? "";
+      selectedPort.value =
+        (configuredPortExists ? configuredPort : null) ??
+        preferredPort ??
+        nextPorts[0]?.port ??
+        "";
     } else if (!previousStillExists) {
       selectedPort.value = preferredPort ?? "";
     }
@@ -320,42 +245,13 @@ async function requestNewPort(): Promise<void> {
   }
 }
 
-async function loadLogs(): Promise<void> {
-  if (logsLoading.value) {
-    return;
-  }
-
-  logsLoading.value = true;
-  try {
-    const page = await listAuditLogs(20, 0);
-    auditLogs.value = page.items;
-  } catch (error) {
-    errorMessage.value = getApiErrorMessage(error);
-  } finally {
-    logsLoading.value = false;
-  }
-}
-
 function refreshAppConfig(): void {
   appConfig.value = getAppConfig();
+  if (appConfig.value.selectedPort) {
+    selectedPort.value = appConfig.value.selectedPort;
+  }
   manualDisconnect = false;
   void loadPorts(true);
-}
-
-async function clearOperationLogs(): Promise<void> {
-  if (logsClearing.value || auditLogs.value.length === 0) {
-    return;
-  }
-
-  logsClearing.value = true;
-  try {
-    await clearAuditLogs();
-    auditLogs.value = [];
-  } catch (error) {
-    errorMessage.value = getApiErrorMessage(error);
-  } finally {
-    logsClearing.value = false;
-  }
 }
 
 async function refreshStatus(): Promise<void> {
@@ -393,15 +289,11 @@ async function connect(): Promise<void> {
     connectionState.value = "connected";
     connectionMessage.value = `已连接 ${relayStatus.value.port ?? port}`;
     errorMessage.value = "";
-    recordOperation("串口设备", "CONNECT", "—", `已连接 ${port}`, "success");
     await refreshStatus();
-    await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
     await refreshStatus();
     showError(message);
-    recordOperation("串口设备", "CONNECT", "—", message, "failed");
-    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
@@ -413,28 +305,17 @@ async function disconnect(): Promise<void> {
   }
 
   activeOperation.value = "disconnect";
-  const port = relayStatus.value.port ?? selectedPort.value;
   try {
     relayStatus.value = await disconnectRelay();
     manualDisconnect = true;
     connectionState.value = "disconnected";
     connectionMessage.value = "未连接";
     errorMessage.value = "";
-    recordOperation(
-      "串口设备",
-      "DISCONNECT",
-      "—",
-      `已断开 ${port || "串口"}`,
-      "success",
-    );
     await refreshStatus();
-    await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
     await refreshStatus();
     showError(message);
-    recordOperation("串口设备", "DISCONNECT", "—", message, "failed");
-    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
@@ -448,30 +329,17 @@ async function runRelayAction(
     return;
   }
 
-  const commandHex = actionName === "ON" ? "A0 01 01 A2" : "A0 01 00 A1";
   activeOperation.value = actionName === "ON" ? "on" : "off";
-  recordOperation("继电器 1", actionName, commandHex, "发送中", "pending");
-
   try {
     const result = await request();
     relayStatus.value = result.status;
     connectionState.value = "connected";
     connectionMessage.value = `已连接 ${result.status.port ?? ""}`.trim();
     errorMessage.value = "";
-    recordOperation(
-      "继电器 1",
-      actionName,
-      result.command,
-      result.message,
-      "success",
-    );
-    await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
-    recordOperation("继电器 1", actionName, commandHex, message, "failed");
     await refreshStatus();
     showError(message);
-    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
@@ -480,7 +348,7 @@ async function runRelayAction(
 onMounted(async () => {
   await initApp();
   refreshAppConfig();
-  await Promise.all([loadPorts(), refreshStatus(), loadLogs()]);
+  await Promise.all([loadPorts(), refreshStatus()]);
   portsPollTimer = window.setInterval(() => {
     void loadPorts(true);
   }, PORT_POLL_INTERVAL_MS);
@@ -573,6 +441,7 @@ onBeforeUnmount(() => {
 
       <RelayCard
         :status="relayStatus"
+        :channel="appConfig.relay.currentChannel"
         :active-operation="
           activeOperation === 'on' || activeOperation === 'off'
             ? activeOperation
@@ -583,51 +452,10 @@ onBeforeUnmount(() => {
       />
     </main>
 
-    <section
-      class="operation-result"
-      :class="`operation-${lastOperation.status}`"
-      aria-live="polite"
-    >
-      <header class="operation-header">
-        <p class="section-label">最近一次操作</p>
-        <el-tag :type="operationTagType" effect="dark" size="small">
-          {{ operationStatusLabel }}
-        </el-tag>
-      </header>
-      <dl class="operation-fields">
-        <div>
-          <dt>时间</dt>
-          <dd>{{ lastOperation.time }}</dd>
-        </div>
-        <div>
-          <dt>对象</dt>
-          <dd>{{ lastOperation.target }}</dd>
-        </div>
-        <div>
-          <dt>动作</dt>
-          <dd>{{ lastOperation.action }}</dd>
-        </div>
-        <div>
-          <dt>命令</dt>
-          <dd><code>{{ lastOperation.commandHex }}</code></dd>
-        </div>
-        <div class="operation-message">
-          <dt>结果</dt>
-          <dd>{{ lastOperation.result }}</dd>
-        </div>
-      </dl>
-    </section>
-
-    <OperationLog
-      :entries="auditLogs"
-      :loading="logsLoading"
-      :clearing="logsClearing"
-      @refresh="loadLogs"
-      @clear="clearOperationLogs"
-    />
-
     <SettingsPanel
       v-model:visible="settingsVisible"
+      v-model:selected-port="selectedPort"
+      :ports="ports"
       @saved="refreshAppConfig"
     />
   </div>

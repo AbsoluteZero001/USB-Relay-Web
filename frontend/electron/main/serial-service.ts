@@ -8,6 +8,7 @@ import type {
   SerialStatus,
   SerialConnectionState,
 } from "../../src/services/serial/types";
+import { toNodeFlowControlOptions } from "../../src/services/serial/flow-control";
 
 // Known USB vendor ids for common USB-serial chips.
 const VENDOR_NAMES: Record<string, string> = {
@@ -126,6 +127,7 @@ export class SerialService extends EventEmitter {
         dataBits: options.dataBits,
         stopBits: options.stopBits,
         parity: options.parity as "none" | "even" | "odd" | "mark" | "space",
+        ...toNodeFlowControlOptions(options.flowControl),
         autoOpen: false,
       });
 

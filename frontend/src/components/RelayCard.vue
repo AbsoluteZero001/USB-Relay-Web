@@ -11,6 +11,7 @@ import type { RelayStatus } from "../api/relay";
 const props = defineProps<{
   status: RelayStatus;
   activeOperation: "on" | "off" | null;
+  channel: number;
 }>();
 
 const emit = defineEmits<{
@@ -92,7 +93,7 @@ function toggleRelay(): void {
     <header class="panel-header">
       <div>
         <p class="section-label">输出通道</p>
-        <h2>继电器 1</h2>
+        <h2>继电器 {{ channel }}</h2>
       </div>
       <el-tag :type="stateTagType" effect="dark">
         {{ stateLabel }}

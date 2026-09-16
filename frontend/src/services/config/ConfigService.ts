@@ -1,5 +1,5 @@
 import type { AppConfig } from "./types";
-import { DEFAULT_CONFIG } from "./types";
+import { normalizeAppConfig } from "./migrate";
 
 const STORAGE_KEY = "usb-relay-config";
 
@@ -33,30 +33,17 @@ export class ConfigService {
   private loadFromLocalStorage(): AppConfig {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return { ...DEFAULT_CONFIG };
-      const parsed = JSON.parse(raw) as Partial<AppConfig>;
-      return {
-        ...DEFAULT_CONFIG,
-        ...parsed,
-        relay: {
-          ...DEFAULT_CONFIG.relay,
-          ...parsed.relay,
-          serial: {
-            ...DEFAULT_CONFIG.relay.serial,
-            ...parsed.relay?.serial,
-          },
-        },
-        deviceRules:
-          parsed.deviceRules && parsed.deviceRules.length > 0
-            ? parsed.deviceRules
-            : DEFAULT_CONFIG.deviceRules,
-      };
+      if (!raw) return normalizeAppConfig(null);
+      return normalizeAppConfig(JSON.parse(raw));
     } catch {
-      return { ...DEFAULT_CONFIG };
+      return normalizeAppConfig(null);
     }
   }
 
   private saveToLocalStorage(config: AppConfig): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(normalizeAppConfig(config)),
+    );
   }
 }

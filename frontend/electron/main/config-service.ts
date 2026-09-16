@@ -2,6 +2,7 @@ import { app } from "electron";
 import Store from "electron-store";
 import type { AppConfig } from "../../src/services/config/types";
 import { DEFAULT_CONFIG } from "../../src/services/config/types";
+import { normalizeAppConfig } from "../../src/services/config/migrate";
 
 /**
  * Persistent configuration store for the Electron desktop version.
@@ -18,28 +19,11 @@ const store = new Store<AppConfig>({
 });
 
 export function loadConfig(): AppConfig {
-  // Merge with defaults to handle missing keys after version upgrades.
-  const saved = store.store;
-  return {
-    ...DEFAULT_CONFIG,
-    ...saved,
-    relay: {
-      ...DEFAULT_CONFIG.relay,
-      ...saved.relay,
-      serial: {
-        ...DEFAULT_CONFIG.relay.serial,
-        ...saved.relay?.serial,
-      },
-    },
-    deviceRules:
-      saved.deviceRules?.length > 0
-        ? saved.deviceRules
-        : DEFAULT_CONFIG.deviceRules,
-  };
+  return normalizeAppConfig(store.store);
 }
 
 export function saveConfig(config: AppConfig): void {
-  store.set(config);
+  store.set(normalizeAppConfig(config));
 }
 
 export function getConfigPath(): string {
