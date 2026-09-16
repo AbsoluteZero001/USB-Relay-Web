@@ -14,5 +14,10 @@
     "strict": true,
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "electron/**/*.ts",
+    "vite.config.ts"
+  ]
 }

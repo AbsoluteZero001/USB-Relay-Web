@@ -42,7 +42,7 @@
       "output": "release"
     },
     "artifactName": "USB-Relay-Console-${version}-${arch}.${ext}",
-    "compression": "maximum",
+    "compression": "normal",
     "files": [
       "dist-electron/**/*",
       "package.json"

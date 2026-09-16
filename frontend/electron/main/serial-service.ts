@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import { SerialPort } from "serialport";
-import type { PortInfo } from "@serialport/bindings-interface";
 
 import type {
   SerialOpenOptions,
@@ -25,14 +24,25 @@ function toHex4(value: string | undefined): string | null {
   return cleaned.padStart(4, "0");
 }
 
-function describePort(info: PortInfo): {
+interface SerialPortBindingInfo {
+  path: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  pnpId?: string;
+  locationId?: string;
+  productId?: string;
+  vendorId?: string;
+  friendlyName?: string;
+}
+
+function describePort(info: SerialPortBindingInfo): {
   description: string;
   manufacturer: string | null;
 } {
   const vid = toHex4(info.vendorId);
   const manufacturer = vid ? VENDOR_NAMES[vid] ?? info.manufacturer ?? null : info.manufacturer ?? null;
 
-  let description = info.product || "USB Serial Device";
+  let description = info.friendlyName?.trim() || "USB Serial Device";
   if (vid === "1A86") {
     description = "USB-SERIAL CH340";
   } else if (vid === "0403") {
