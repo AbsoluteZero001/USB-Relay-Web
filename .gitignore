@@ -16,6 +16,8 @@ htmlcov/
 # Node
 node_modules/
 dist/
+dist-electron/
+release*/
 .vite/
 npm-debug.log*
 yarn-debug.log*

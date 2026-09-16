@@ -1,330 +1,338 @@
-# USB-Relay-Web
-运行在 Windows 本机上的 USB 继电器 Web 控制系统，采用 Vue 3 + TypeScript + FastAPI + PySerial 构建。浏览器中的 Vue 3 Dashboard 通过 REST API 调用 FastAPI，服务层通过 PySerial 打开 CH340 串口，并使用已经实机验证的 LCUS-1 HEX 指令控制 1 路继电器。
+# USB Relay Console
 
-目前项目已完成第三阶段，实现了从 Web Dashboard → FastAPI → RelayService → SerialService → PySerial → CH340 → LCUS-1 → 继电器的真实硬件控制闭环。在此基础上增加了串口生命周期状态机、健康检查、内存操作审计、前端日志视图、统一错误处理以及自动化测试，并针对 Windows 本机环境进行了实际硬件验证。
+USB Relay Console 是一个基于 Vue 3、TypeScript 和 Electron 的 USB 继电器控制台，同时提供：
 
-已实机验证 Relay 1 的 ON/OFF 控制指令：
+- **Windows 桌面版**：通过 Electron 主进程和 Node SerialPort 访问串口。
+- **浏览器版**：通过 Chromium Web Serial API 访问串口。
+- **无需独立后端服务**：应用逻辑和串口通信均在本地运行。
 
-A0 01 01 A2 — Relay 1 ON
-A0 01 00 A1 — Relay 1 OFF
+项目当前已使用 CH340 和 LCUS-1 单路 USB 继电器完成实机验证。
 
-需要说明的是，LCUS-1 当前未验证可用的继电器状态回读协议，因此页面中的继电器状态仅表示软件最后一次成功发送的 ON/OFF 命令，不代表硬件实际状态。
+## 已验证指令
 
-本项目定位为 Windows 本机硬件控制工具，当前不包含用户登录、数据库、Redis、权限系统、WebSocket、Docker、云端控制、多设备管理、自动重连及定时任务等功能。
-## 技术栈
+| 操作 | HEX 指令 | 验证结果 |
+| --- | --- | --- |
+| Relay 1 ON | `A0 01 01 A2` | 继电器吸合 |
+| Relay 1 OFF | `A0 01 00 A1` | 继电器释放 |
 
-- 前端：Vue 3、TypeScript、Vite、Axios、Element Plus
-- 后端：Python 3.12+、FastAPI、Uvicorn、PySerial
-- 数据模型与配置：Pydantic、pydantic-settings
-- 测试：pytest、FastAPI TestClient、fake serial
+> LCUS-1 当前没有经过验证的状态回读协议。界面中的 ON/OFF 表示软件最近一次成功发送的控制命令，不代表已经读取到硬件真实状态。
+
+## 功能特性
+
+- 自动扫描串口并识别 CH340 设备
+- 支持自动连接和异常断开后的自动重连
+- 支持自定义 ON/OFF HEX 指令
+- 支持配置波特率、数据位、校验位、停止位和流控
+- 桌面版与浏览器版共用同一套 Vue 界面
+- 桌面端使用受限 IPC 接口，Renderer 不直接访问 Node.js
+- 桌面版配置保存在当前用户目录，无需管理员权限
+- 支持旧版配置格式自动迁移
+- 提供 Vitest 单元测试和完整 TypeScript 类型检查
+
+## 运行版本
+
+### Windows 桌面版
+
+桌面版使用 Electron，通过主进程中的 Node SerialPort 访问 Windows COM 端口。
+
+适用场景：
+
+- 不希望依赖浏览器串口授权
+- 希望直接安装并运行
+- Windows 10/11 x64
+
+### 浏览器版
+
+浏览器版直接调用 Chromium Web Serial API。
+
+要求：
+
+- Chrome 或 Edge 89+
+- 通过 `https://` 或 `http://localhost` 访问
+- 首次使用时手动授权串口设备
+
+Firefox 和 Safari 当前不支持 Web Serial API。
 
 ## 系统架构
 
 ```text
-Vue 3 Dashboard
-      │ HTTP / JSON
-      ▼
-FastAPI (/api)
-      ├── HealthService ── /api/health
-      ├── AuditLogService ── /api/logs
-      ▼
-RelayService
-      │ LCUS-1 指令
-      ▼
-SerialService
-      │ 串行化写入
-      ▼
-PySerial
-      │
-      ▼
-Windows COM3 / CH340
-      │
-      ▼
-LCUS-1 Relay 1
+                         Vue 3 Dashboard
+                                |
+             +------------------+------------------+
+             |                                     |
+             v                                     v
+      Electron 桌面版                         浏览器版
+             |                                     |
+   Renderer <-> IPC <-> Main              Web Serial API
+             |                                     |
+             +------------- Node SerialPort --------+
+                                |
+                                v
+                         CH340 / LCUS-1
 ```
 
-代码边界：
+主要安全边界：
 
-- API 层只解析请求、调用服务和返回模型，不直接操作 PySerial。
-- `RelayService` 只处理继电器业务和固定协议，不管理串口对象生命周期。
-- `SerialService` 只管理串口扫描、连接、断开和写入，不包含继电器业务。
-- 写入由 `threading.RLock` 保护，避免并发请求把指令字节交错发送。
-- `AuditLogService` 独立维护内存操作记录，API 路由不保存审计数据。
-- `SerialService` 只维护一个当前串口对象，并在异常后清除失效句柄。
+- `contextIsolation: true`
+- `nodeIntegration: false`
+- 仅通过 preload 和 IPC 白名单暴露串口与配置接口
+- Renderer 无法直接访问 Electron、Node.js 或原生模块
 
-## 第二阶段功能
+## 下载与安装
 
-- 串口扫描返回 `port`、`device`、`description`、`manufacturer`、`hwid` 和 `is_current`。
-- 对同一端口重复执行连接是幂等的，不会创建第二个串口对象。
-- 连接另一个端口时，先安全断开旧端口，再尝试打开新端口。
-- ON/OFF 请求分别在本地日志中记录时间、动作、端口、HEX、结果和错误代码。
-- 前端轮询带防重入保护，不会因为请求慢而叠加状态查询。
-- 端口刷新不会自动切换到另一个 COM；原端口消失时会保留明确错误。
-- ON/OFF 各自拥有独立 loading，请求结束或失败后都会恢复按钮。
-- 前端区分未连接、已连接、设备断开和串口异常，并显示结构化最近操作。
+请从 GitHub Releases 下载对应版本：
 
-## 第三阶段功能
+| 文件 | 用途 |
+| --- | --- |
+| `USB-Relay-Console-<version>-x64.exe` | NSIS 安装程序 |
+| `USB-Relay-Console-<version>-x64.zip` | 免安装压缩包 |
 
-- 串口生命周期状态为 `disconnected`、`connecting`、`connected`、`error`。
-- `GET /api/serial/status` 返回状态、端口、设备名称、波特率和错误信息。
-- `GET /api/health` 用于前端判断后端在线，不要求继电器硬件存在。
-- `GET /api/logs` 返回最近 20 条操作记录，支持 `limit` 和 `offset`。
-- `DELETE /api/logs` 清空当前进程的内存日志。
-- FastAPI shutdown 会关闭当前串口，避免后端退出后继续占用 COM。
-- 浏览器刷新或重新打开不会自动发送 ON，也不会恢复上次运行状态。
-
-## 已验证硬件与协议
-
-硬件链路：
+免安装版解压后运行：
 
 ```text
-Windows USB
-  → USB-SERIAL CH340
-  → COM3
-  → 丢石头 LCUS-1 1路 USB 继电器
+USB Relay Console.exe
 ```
 
-默认串口参数：
+当前发行包未配置代码签名。Windows SmartScreen 可能显示“未知发布者”，这不影响程序运行。
 
-| 参数 | 值 |
+## 使用流程
+
+1. 安装 CH340 驱动并插入 USB 继电器。
+2. 在设备管理器中确认设备已分配 COM 端口。
+3. 打开桌面版，或使用 Chrome/Edge 打开浏览器版。
+4. 扫描并选择目标串口。
+5. 点击“连接”。
+6. 使用界面开关发送 ON/OFF 指令。
+7. 不使用时点击“断开”，释放串口。
+
+同一个 COM 端口不能被多个程序同时打开。使用前请关闭 SSCOM、Arduino 串口监视器以及其他串口工具。
+
+## 默认串口参数
+
+| 参数 | 默认值 |
 | --- | --- |
 | 波特率 | `9600` |
 | 数据位 | `8` |
 | 校验位 | `None` |
 | 停止位 | `1` |
-| 工作方式 | HEX |
+| 流控 | `None` |
 
-已验证的 Relay 1 指令：
-
-| 操作 | HEX | 实机现象 |
-| --- | --- | --- |
-| Relay 1 ON | `A0 01 01 A2` | 继电器吸合，红灯亮 |
-| Relay 1 OFF | `A0 01 00 A1` | Relay 1 关闭 |
-
-这两条指令已经由 SSCOM V5.13.1 实测确认。项目按原值发送，不做协议猜测或额外编码。
-
-## 状态说明
-
-LCUS-1 当前没有经过验证的状态回读协议，因此 API 不声称从硬件读取到了继电器状态。`relay_state` 仅表示“软件最近一次成功发送的 ON/OFF 指令”：
-
-- `on`：软件最近一次成功发送了 ON。
-- `off`：软件最近一次成功发送了 OFF。
-- `unknown`：尚未发送、串口已断开，或最近一次写入失败。
-
-当 `state_source` 为 `software_last_command` 时，响应表示软件记录，不代表硬件确认回读。Dashboard 对这一项的固定文案是“状态来源：软件最后一次命令”。
-
-后端重新启动、串口断开、写入失败或显式断开后，继电器状态回到 `unknown`。项目明确禁止自动恢复上次 ON 状态。
-
-## 串口生命周期
-
-```text
-disconnected
-    │ connect
-    ▼
-connecting
-    ├── success ──► connected
-    ├── connect error ──► error
-    └── explicit disconnect
-
-connected
-    ├── write error / unplug ──► error
-    └── explicit disconnect ──► disconnected
-
-error
-    └── disconnect / new connection attempt ──► disconnected / connecting
-```
-
-`error` 状态可能保留最后一次尝试的端口，便于用户识别，但 `connected=false`，且内部串口对象已清除。再次连接前不需要重启后端，但必须先处理设备或占用问题。
+默认参数可以在应用设置页面中修改。
 
 ## 开发环境
 
+推荐环境：
+
 - Windows 10/11
-- Python 3.12 或更高版本
 - Node.js 20 或更高版本
+- npm 10 或更高版本
 - CH340 驱动
-- 已确认端口号，例如 `COM3`
+- Chrome 或 Edge 89+（仅浏览器版需要）
 
-## 一键启动开发环境
-
-首次准备依赖：
+安装依赖：
 
 ```powershell
-cd D:\GitHub\USB-Relay-Web\backend
-if (-not (Test-Path .venv\Scripts\python.exe)) {
-    python -m venv .venv
-}
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 cd D:\GitHub\USB-Relay-Web\frontend
-npm install
+npm ci
 ```
 
-以后只需要在 PyCharm 中运行 `backend/app/main.py`，或执行：
+`postinstall` 会调用 `electron-builder install-app-deps`，为当前 Electron 版本重建原生模块。
+
+启动开发环境：
 
 ```powershell
-cd D:\GitHub\USB-Relay-Web\backend
-.\.venv\Scripts\python.exe app\main.py
+npm run dev
 ```
 
-启动入口会：
-
-- 启动或复用 `127.0.0.1:8000` 上的 FastAPI。
-- 启动或复用 `127.0.0.1:5173` 上的 Vite。
-- 等待两个服务就绪后自动打开 <http://localhost:5173>。
-- 按 `Ctrl+C` 时停止本次启动创建的 Vite，并正常关闭 FastAPI。
-
-Swagger：<http://127.0.0.1:8000/docs>
-
-OpenAPI JSON：<http://127.0.0.1:8000/openapi.json>
-
-后端固定关闭 Uvicorn 自动重载。真实 USB 继电器场景下不使用 `--reload`，
-避免 reloader 创建子进程并重复初始化串口服务。
-
-前端默认请求 `http://127.0.0.1:8000/api`。如需修改，可在 `frontend/.env` 中设置：
-
-```dotenv
-VITE_API_BASE_URL=http://127.0.0.1:8000/api
-```
-
-后端只允许以下开发来源跨域访问：
-
-- `http://localhost:5173`
-- `http://127.0.0.1:5173`
-
-## API
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/serial/ports` | 返回端口、设备、描述、制造商、HWID 和当前连接标记 |
-| `GET` | `/api/serial/status` | 返回串口生命周期状态、端口、设备、波特率 |
-| `POST` | `/api/relay/connect` | 请求体示例：`{"port":"COM3"}` |
-| `POST` | `/api/relay/disconnect` | 关闭当前串口 |
-| `POST` | `/api/relay/on` | 实际发送 `A0 01 01 A2` |
-| `POST` | `/api/relay/off` | 实际发送 `A0 01 00 A1` |
-| `GET` | `/api/relay/status` | 返回连接、端口及软件状态 |
-| `GET` | `/api/logs` | 返回内存操作日志，支持 `limit`、`offset` |
-| `DELETE` | `/api/logs` | 清空内存操作日志 |
-| `GET` | `/api/health` | 返回服务状态和串口连接状态 |
-
-所有业务错误沿用现有统一结构：
-
-```json
-{
-  "detail": "串口 COM3 正在被其他程序占用，请关闭 SSCOM 等串口软件后重试",
-  "code": "SERIAL_PORT_BUSY"
-}
-```
-
-未知后端异常也会转换为稳定的 `INTERNAL_SERVER_ERROR`，不会把 Python traceback 返回给浏览器。
-
-## TX 日志
-
-每次实际执行 ON/OFF 时，后端会输出一行可检索的 JSON 日志，并写入内存审计服务：
+该命令会启动 Vite 和 Electron 开发窗口。浏览器版联调地址：
 
 ```text
-relay_command {"timestamp":"2026-09-15T07:02:11.123456Z","action":"ON","command":"RELAY_ON","hex":"A0 01 01 A2","port":"COM3","result":"success","error_code":null,"detail":"Relay 1 ON 指令发送成功"}
+http://localhost:5173
 ```
 
-失败时会包含 `error_code` 和用户可读的 `detail`，例如 `SERIAL_WRITE_FAILED`。内存日志最多保留最近 500 条，进程退出后自动消失，不引入数据库。
+技术栈：
 
-查询示例：
+- Vue 3
+- TypeScript
+- Vite
+- Element Plus
+- Electron
+- Node SerialPort
+- Vitest
+- electron-builder
 
-```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/api/logs?limit=20&offset=0"
-Invoke-RestMethod -Method Delete http://127.0.0.1:8000/api/logs
+## 常用命令
+
+| 命令 | 说明 |
+| --- | --- |
+| `npm run dev` | 启动 Vite 和 Electron 开发环境 |
+| `npm test` | 运行 Vitest 测试 |
+| `npm run typecheck` | 检查前端和 Electron TypeScript 代码 |
+| `npm run build` | 执行类型检查并生成生产文件 |
+| `npm run preview` | 预览 Vite 构建结果 |
+| `npm run clean` | 清理构建目录和发布目录 |
+| `npm run dist` | 构建 Windows EXE 和 ZIP 发布包 |
+| `npm audit` | 检查依赖安全漏洞 |
+
+## 项目结构
+
+```text
+USB-Relay-Web/
+├─ README.md
+└─ frontend/
+   ├─ electron/
+   │  ├─ main/
+   │  │  ├─ index.ts
+   │  │  ├─ serial-service.ts
+   │  │  └─ config-service.ts
+   │  └─ preload/
+   │     └─ index.ts
+   ├─ scripts/
+   │  └─ clean.cjs
+   ├─ src/
+   │  ├─ api/
+   │  ├─ components/
+   │  ├─ services/
+   │  │  ├─ config/
+   │  │  ├─ serial/
+   │  │  ├─ RelayService.ts
+   │  │  ├─ device-rules.ts
+   │  │  ├─ errors.ts
+   │  │  └─ hex.ts
+   │  ├─ views/
+   │  ├─ App.vue
+   │  └─ main.ts
+   ├─ package.json
+   ├─ tsconfig.json
+   └─ vite.config.ts
 ```
 
-## 真实测试流程
+关键模块：
 
-第一次使用 LCUS-1 + CH340 时，按以下顺序操作：
+- `src/api/relay.ts`：UI 使用的统一服务门面。
+- `src/services/RelayService.ts`：继电器业务逻辑和指令发送。
+- `src/services/serial/WebSerialAdapter.ts`：浏览器 Web Serial 适配器。
+- `src/services/serial/ElectronSerialAdapter.ts`：Electron IPC 串口适配器。
+- `electron/main/serial-service.ts`：桌面版 Node SerialPort 服务。
+- `electron/main/config-service.ts`：桌面版配置持久化。
 
-1. 插入 USB 继电器。
-2. 确认 Windows 已安装 CH340 驱动。
-3. 关闭 SSCOM、Arduino 串口监视器及其他串口工具。
-4. 启动 backend。
-5. 启动 frontend。
-6. 打开 Dashboard。
-7. 选择目标端口，当前实机为 `COM3`。
-8. 点击“连接”，确认设备状态显示 `已连接 COM3`。
-9. 点击 `ON`，页面显示发送成功，命令为 `A0 01 01 A2`。
-10. 确认继电器发出“啪”的吸合声。
-11. 确认 Relay 1 LED 状态变化。
-12. 点击 `OFF`，页面显示发送成功，命令为 `A0 01 00 A1`。
-13. 确认继电器释放，LED 恢复关闭状态。
-14. 点击“断开”，确认串口释放。
-15. 访问 `/api/health`，确认后端在线且 `serial_connected=false`。
-16. 打开“最近操作日志”，确认 CONNECT、ON、OFF、DISCONNECT 按时间倒序显示。
+## 配置持久化
 
-软件当前无法读取 LCUS-1 的真实硬件状态。页面中的 ON/OFF 是“软件最后一次命令”记录，不是硬件回读结果。
+桌面版使用 `electron-store`，配置保存在当前用户的 Electron 应用数据目录中，不会写入安装目录。
 
-也可以使用 PowerShell 调用 API：
+浏览器版使用 `localStorage`，存储键为：
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/serial/ports
-Invoke-RestMethod -Method Post `
-  -Uri http://127.0.0.1:8000/api/relay/connect `
-  -ContentType "application/json" `
-  -Body '{"port":"COM3"}'
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/relay/on
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/relay/off
+```text
+usb-relay-config
 ```
 
-## 自动化测试
+配置内容包括：
 
-后端测试不依赖真实继电器：
+- 上次选择的串口
+- ON/OFF HEX 指令
+- 串口通信参数
+- 自动连接和自动重连设置
+- 串口设备匹配规则
 
-```powershell
-cd D:\GitHub\USB-Relay-Web\backend
-.\.venv\Scripts\python.exe -m pytest -q
-```
+旧版扁平配置会在加载时自动转换，无需手动迁移。
 
-前端类型检查和生产构建：
+## 继电器状态说明
+
+| 状态 | 含义 |
+| --- | --- |
+| `ON` | 软件最近一次成功发送了 ON 指令 |
+| `OFF` | 软件最近一次成功发送了 OFF 指令 |
+| `UNKNOWN` | 尚未控制、串口已断开或最近一次写入失败 |
+
+关闭应用或浏览器页面不会自动发送 OFF，也不会恢复上次 ON 状态。
+
+LCUS-1 当前不支持已验证的状态回读，因此界面不会声称硬件状态已经确认。
+
+## 测试与构建
+
+运行完整验证：
 
 ```powershell
 cd D:\GitHub\USB-Relay-Web\frontend
+npm test
 npm run typecheck
 npm run build
+npm audit --audit-level=high
 ```
 
-Python 静态检查在仓库根目录执行：
+构建 Windows 发布包：
 
 ```powershell
-npx --yes pyright@latest
+npm run dist
 ```
 
-根目录的 `pyrightconfig.json` 已将 `backend` 配置为源码根，并关联
-`backend/.venv`。IDE 如仍显示旧诊断，请将 Python 解释器切换为
-`D:\GitHub\USB-Relay-Web\backend\.venv\Scripts\python.exe`，然后重启语言服务器。
+输出目录：
 
-## Windows 使用注意事项
+```text
+frontend/release/
+├─ USB-Relay-Console-<version>-x64.exe
+├─ USB-Relay-Console-<version>-x64.exe.blockmap
+├─ USB-Relay-Console-<version>-x64.zip
+└─ win-unpacked/
+```
 
-- CH340 必须已安装正确驱动；设备管理器中应能看到对应 COM 端口。
-- 同一个 COM 口在同一时间只能由一个程序打开。运行本服务前先关闭 SSCOM、Arduino 串口监视器等程序，否则会返回端口占用错误。
-- COM 号由 Windows 分配，更换 USB 口后可能改变。项目通过扫描动态发现端口，不把 `COM3` 写死为唯一设备。
-- `backend/app/main.py` 会动态定位项目根目录和 `frontend`，不依赖启动时
-  所在的当前工作目录。
-- 页面显示 `UNKNOWN` 是预期行为，因为当前协议没有状态回读。只有在本次连接中成功发送 ON/OFF 后，软件状态才会变为 `ON/OFF`。
-- 拔掉 USB 后在下次通信时服务会捕获异常并清理失效连接；重新插入设备后需刷新端口并再次连接。
-- 关闭浏览器不会发送 OFF，也不会恢复上次 ON；需要关闭继电器时应点击页面中的“关闭继电器 / OFF”。
-- 后端正常退出会自动释放串口；非正常强制结束进程时，应由操作系统回收句柄。
-- 继电器可能连接真实负载。进行接线和通电测试前，应确认负载电压、电流和隔离要求，并遵守设备额定参数。
+版本号来自 `frontend/package.json` 中的 `version` 字段。
 
 ## 常见错误
 
 | 错误代码 | 原因 | 处理方式 |
 | --- | --- | --- |
-| `SERIAL_PORT_BUSY` | COM 口被 SSCOM 等程序占用 | 关闭占用程序，点击刷新后重新连接 |
-| `SERIAL_PORT_NOT_FOUND` | 设备未插入、驱动异常或 COM 号变化 | 检查设备管理器，刷新串口并重新选择 |
-| `SERIAL_NOT_CONNECTED` | 尚未连接或连接已经释放 | 先连接目标 COM，再执行 ON/OFF |
-| `SERIAL_WRITE_FAILED` | USB 被拔出或串口写入失败 | 检查 USB，刷新端口并重新连接 |
-| `SERIAL_PORT_SCAN_FAILED` | Windows 串口服务或扫描层异常 | 检查系统串口服务并查看后端日志 |
-| `INTERNAL_SERVER_ERROR` | 未预期的后端异常 | 查看终端日志，不要向用户展示 traceback |
+| `WEB_SERIAL_UNSUPPORTED` | 浏览器不支持 Web Serial API | 使用 Chrome/Edge 89+，或安装桌面版 |
+| `SERIAL_USER_CANCELLED` | 用户取消串口授权 | 重新选择并授权串口 |
+| `SERIAL_PORT_BUSY` | COM 端口被其他程序占用 | 关闭 SSCOM、串口监视器等程序 |
+| `SERIAL_PORT_NOT_FOUND` | 串口不存在或设备已移除 | 检查驱动和 USB 连接后重新扫描 |
+| `SERIAL_NOT_CONNECTED` | 尚未连接串口 | 先连接目标串口 |
+| `SERIAL_WRITE_FAILED` | USB 被拔出或写入失败 | 检查设备并重新连接 |
 
-设备在操作中断开后，前端会收到明确错误，后端会清除失效连接；本阶段没有自动重连。
+## 构建问题排查
 
-## 环境变量
+### `No JSON content found in output`
 
-后端支持 `USB_RELAY_` 前缀配置，示例见 `backend/.env.example`。硬件通信参数默认值已按实机验证结果设置，不应随意修改。
+electron-builder 会调用 `npm list` 收集生产依赖。如果 Windows CMD 的 `AutoRun` 配置了 `fastfetch` 或其他会输出文本的命令，这些内容可能混入 JSON 并导致构建失败。
 
-## 第三阶段边界
+处理方式：
 
-当前未实现用户登录、数据库、Redis、WebSocket、Docker、权限系统、多设备管理、云端控制、自动重连、定时任务和复杂主题。操作日志仅存在于后端内存。没有实现硬件状态回读，也没有加入 `FF` 查询、多路协议或未知协议自动探测，因为当前只验证了 Relay 1 的 ON/OFF 两条控制指令。
+1. 临时关闭 CMD `AutoRun` 后重新执行 `npm run dist`。
+2. 构建完成后恢复原配置。
+
+### 原生模块加载失败
+
+重新为当前 Electron 版本安装并重建原生依赖：
+
+```powershell
+npm ci
+npm run postinstall
+```
+
+### 串口被占用
+
+确认以下程序没有占用目标 COM 端口：
+
+- SSCOM
+- Arduino IDE 串口监视器
+- PuTTY
+- 其他串口调试或自动化程序
+
+## 已知限制
+
+- 当前仅验证 CH340 与 LCUS-1 单路继电器。
+- LCUS-1 的真实硬件状态无法回读。
+- 当前发布包仅提供 Windows x64。
+- 应用和安装包尚未配置代码签名。
+- 当前使用 Electron 默认应用图标。
+
+## 安全提示
+
+继电器可能连接真实负载。接线和通电测试前，请确认：
+
+- 负载电压和电流在设备额定范围内
+- 高压与低压部分满足隔离要求
+- 接线端子连接牢固
+- 测试环境具备必要的过流和断电保护
+
+应用会发送真实的串口控制指令，请勿将本项目用于未经授权或存在安全风险的设备控制。

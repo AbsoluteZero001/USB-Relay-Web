@@ -1,42 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import { Connection, WarningFilled } from "@element-plus/icons-vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { Connection, Setting, WarningFilled } from "@element-plus/icons-vue";
 
 import {
-  clearAuditLogs,
   connectRelay,
   disconnectRelay,
   getApiErrorMessage,
+  getAppConfig,
   getHealth,
   getRelayStatus,
   getSerialStatus,
-  listAuditLogs,
+  initApp,
+  isWebSerialSupported,
   listSerialPorts,
+  requestSerialPort,
   turnRelayOff,
   turnRelayOn,
-  type AuditLogEntry,
+  type AppConfig,
   type RelayActionResponse,
   type RelayStatus,
   type SerialConnectionState,
   type SerialPortInfo,
   type SerialStatus,
 } from "../api/relay";
-import OperationLog from "../components/OperationLog.vue";
+import { findMatchingPort } from "../services/device-rules";
 import RelayCard from "../components/RelayCard.vue";
 import SerialPanel from "../components/SerialPanel.vue";
+import SettingsPanel from "../components/SettingsPanel.vue";
+
+const settingsVisible = ref(false);
+const appConfig = ref<AppConfig>(getAppConfig());
 
 type ActiveOperation = "connect" | "disconnect" | "on" | "off" | null;
-type OperationStatus = "idle" | "pending" | "success" | "failed";
 type UiSerialConnectionState = SerialConnectionState | "device_lost";
-
-interface OperationRecord {
-  time: string;
-  target: string;
-  action: string;
-  commandHex: string;
-  result: string;
-  status: OperationStatus;
-}
 
 const emptyRelayStatus: RelayStatus = {
   connected: false,
@@ -57,7 +53,7 @@ const emptySerialStatus: SerialStatus = {
 
 const ports = ref<SerialPortInfo[]>([]);
 const selectedPort = ref("");
-const backendOnline = ref(false);
+const webSerialSupported = ref(isWebSerialSupported());
 const scanning = ref(false);
 const activeOperation = ref<ActiveOperation>(null);
 const connectionState = ref<UiSerialConnectionState>("disconnected");
@@ -65,27 +61,23 @@ const connectionMessage = ref("未连接");
 const errorMessage = ref("");
 const relayStatus = ref<RelayStatus>({ ...emptyRelayStatus });
 const serialStatus = ref<SerialStatus>({ ...emptySerialStatus });
-const auditLogs = ref<AuditLogEntry[]>([]);
-const logsLoading = ref(false);
-const logsClearing = ref(false);
-const lastOperation = ref<OperationRecord>({
-  time: "—",
-  target: "—",
-  action: "—",
-  commandHex: "—",
-  result: "尚未执行操作",
-  status: "idle",
-});
 
-let statusTimer: number | undefined;
-let statusRequestInFlight = false;
+const PORT_POLL_INTERVAL_MS = 500;
+const AUTO_CONNECT_RETRY_MS = 2000;
+let portsPollTimer: number | null = null;
+let portScanInFlight = false;
+let autoConnectInFlight = false;
+let autoConnectLastFailureAt = 0;
+let manualDisconnect = false;
 
 const operationInProgress = computed(
   () => activeOperation.value !== null,
 );
-const backendLabel = computed(() => (backendOnline.value ? "在线" : "离线"));
-const backendTagType = computed<"success" | "danger">(() =>
-  backendOnline.value ? "success" : "danger",
+const serialLabel = computed(() =>
+  webSerialSupported.value ? "可用" : "不支持",
+);
+const serialTagType = computed<"success" | "danger">(() =>
+  webSerialSupported.value ? "success" : "danger",
 );
 const currentPort = computed(
   () => serialStatus.value.port || selectedPort.value || "—",
@@ -99,131 +91,170 @@ const currentDevice = computed(() => {
     "—"
   );
 });
-const operationTagType = computed<"success" | "danger" | "info">(() => {
-  if (lastOperation.value.status === "success") {
-    return "success";
-  }
-  if (lastOperation.value.status === "failed") {
-    return "danger";
-  }
-  return "info";
-});
-const operationStatusLabel = computed(() => {
-  if (lastOperation.value.status === "success") {
-    return "成功";
-  }
-  if (lastOperation.value.status === "failed") {
-    return "失败";
-  }
-  if (lastOperation.value.status === "pending") {
-    return "发送中";
-  }
-  return "未执行";
-});
-
-function timeText(): string {
-  return new Date().toLocaleTimeString("zh-CN", { hour12: false });
-}
-
-function recordOperation(
-  target: string,
-  action: string,
-  commandHex: string,
-  result: string,
-  status: OperationStatus,
-): void {
-  lastOperation.value = {
-    time: timeText(),
-    target,
-    action,
-    commandHex,
-    result,
-    status,
-  };
-}
-
+const detectedRelayPort = computed(
+  () =>
+    findMatchingPort(ports.value, appConfig.value.deviceRules)?.port.port ?? null,
+);
 function showError(message: string): void {
   errorMessage.value = message;
   connectionState.value = "error";
   connectionMessage.value = serialStatus.value.detail || "串口异常";
 }
 
-async function loadPorts(): Promise<void> {
-  if (scanning.value) {
+function applySerialStatus(next: SerialStatus): void {
+  serialStatus.value = next;
+  if (next.state === "connected") {
+    connectionState.value = "connected";
+    connectionMessage.value = `已连接 ${next.port ?? ""}`.trim();
+  } else if (next.state === "connecting") {
+    connectionState.value = "connecting";
+    connectionMessage.value = "正在连接串口";
+  } else if (next.state === "error") {
+    connectionState.value =
+      next.error_code === "SERIAL_DEVICE_DISCONNECTED"
+        ? "device_lost"
+        : "error";
+    connectionMessage.value = next.detail || "串口连接异常";
+    errorMessage.value = next.detail || "串口连接异常，请重新连接";
+  } else {
+    connectionState.value = "disconnected";
+    connectionMessage.value = "未连接";
+  }
+}
+
+async function autoConnectDetectedPort(port: string): Promise<void> {
+  if (
+    !appConfig.value.autoConnect ||
+    manualDisconnect ||
+    autoConnectInFlight ||
+    operationInProgress.value
+  ) {
+    return;
+  }
+  const connectedPort = relayStatus.value.port ?? serialStatus.value.port;
+  if (
+    (relayStatus.value.connected || serialStatus.value.connected) &&
+    connectedPort === port
+  ) {
+    return;
+  }
+  if (Date.now() - autoConnectLastFailureAt < AUTO_CONNECT_RETRY_MS) {
     return;
   }
 
-  scanning.value = true;
+  autoConnectInFlight = true;
+  activeOperation.value = "connect";
+  selectedPort.value = port;
+
+  try {
+    relayStatus.value = await connectRelay(port);
+    connectionState.value = "connected";
+    connectionMessage.value = `已自动连接 ${relayStatus.value.port ?? port}`;
+    errorMessage.value = "";
+    await refreshStatus();
+  } catch (error) {
+    autoConnectLastFailureAt = Date.now();
+    await refreshStatus();
+  } finally {
+    activeOperation.value = null;
+    autoConnectInFlight = false;
+  }
+}
+
+async function loadPorts(background = false): Promise<void> {
+  if (portScanInFlight || scanning.value) {
+    return;
+  }
+
+  portScanInFlight = true;
+  if (!background) {
+    scanning.value = true;
+  }
   const previousSelection = selectedPort.value;
   try {
     const nextPorts = await listSerialPorts();
     ports.value = nextPorts;
-    backendOnline.value = true;
+    const preferredPort =
+      findMatchingPort(nextPorts, appConfig.value.deviceRules)?.port.port ?? null;
+    const configuredPort = appConfig.value.selectedPort;
+    const configuredPortExists =
+      !!configuredPort &&
+      nextPorts.some((port) => port.port === configuredPort);
 
     const previousStillExists = nextPorts.some(
       (port) => port.port === previousSelection,
     );
 
     if (!previousSelection) {
-      selectedPort.value = nextPorts[0]?.port ?? "";
+      selectedPort.value =
+        (configuredPortExists ? configuredPort : null) ??
+        preferredPort ??
+        nextPorts[0]?.port ??
+        "";
     } else if (!previousStillExists) {
-      errorMessage.value =
-        `串口 ${previousSelection} 已不存在，` +
-        "请检查设备连接后重试，未自动切换到其他端口";
-      connectionState.value = "error";
-      connectionMessage.value = "设备已不存在";
-      if (!relayStatus.value.connected) {
-        selectedPort.value = "";
-      }
+      selectedPort.value = preferredPort ?? "";
+    }
+
+    if (!preferredPort) {
+      manualDisconnect = false;
+    }
+
+    const connectedPortStillExists =
+      !relayStatus.value.connected ||
+      nextPorts.some((port) => port.port === relayStatus.value.port);
+    if (!connectedPortStillExists) {
+      await refreshStatus();
+    }
+
+    if (preferredPort) {
+      await autoConnectDetectedPort(preferredPort);
     }
   } catch (error) {
-    backendOnline.value = false;
     showError(getApiErrorMessage(error));
+  } finally {
+    portScanInFlight = false;
+    if (!background) {
+      scanning.value = false;
+    }
+  }
+}
+
+/**
+ * Refresh button: open the browser serial-port picker to grant a new device,
+ * then reload the granted-port list and auto-select the newly added port.
+ */
+async function requestNewPort(): Promise<void> {
+  if (scanning.value || !webSerialSupported.value) {
+    return;
+  }
+  scanning.value = true;
+  try {
+    const added = await requestSerialPort();
+    await loadPorts();
+    selectedPort.value = added.port;
+    errorMessage.value = "";
+  } catch (error) {
+    // User cancelled the picker — not a real error, just ignore silently
+    // unless it was an actual failure.
+    const message = getApiErrorMessage(error);
+    if (message !== "已取消串口选择") {
+      showError(message);
+    }
   } finally {
     scanning.value = false;
   }
 }
 
-async function loadLogs(): Promise<void> {
-  if (logsLoading.value) {
-    return;
+function refreshAppConfig(): void {
+  appConfig.value = getAppConfig();
+  if (appConfig.value.selectedPort) {
+    selectedPort.value = appConfig.value.selectedPort;
   }
-
-  logsLoading.value = true;
-  try {
-    const page = await listAuditLogs(20, 0);
-    auditLogs.value = page.items;
-    backendOnline.value = true;
-  } catch (error) {
-    backendOnline.value = false;
-    errorMessage.value = getApiErrorMessage(error);
-  } finally {
-    logsLoading.value = false;
-  }
+  manualDisconnect = false;
+  void loadPorts(true);
 }
 
-async function clearOperationLogs(): Promise<void> {
-  if (logsClearing.value || auditLogs.value.length === 0) {
-    return;
-  }
-
-  logsClearing.value = true;
-  try {
-    await clearAuditLogs();
-    auditLogs.value = [];
-  } catch (error) {
-    errorMessage.value = getApiErrorMessage(error);
-  } finally {
-    logsClearing.value = false;
-  }
-}
-
-async function refreshStatus(force = false): Promise<void> {
-  if (statusRequestInFlight || (operationInProgress.value && !force)) {
-    return;
-  }
-
-  statusRequestInFlight = true;
+async function refreshStatus(): Promise<void> {
   try {
     const [health, nextRelayStatus, nextSerialStatus] = await Promise.all([
       getHealth(),
@@ -231,38 +262,14 @@ async function refreshStatus(force = false): Promise<void> {
       getSerialStatus(),
     ]);
     relayStatus.value = nextRelayStatus;
-    serialStatus.value = nextSerialStatus;
-    backendOnline.value = health.status === "ok";
-
-    if (nextSerialStatus.state === "connected") {
-      connectionState.value = "connected";
-      connectionMessage.value =
-        `已连接 ${nextSerialStatus.port ?? ""}`.trim();
-    } else if (nextSerialStatus.state === "connecting") {
-      connectionState.value = "connecting";
-      connectionMessage.value = "正在连接串口";
-    } else if (nextSerialStatus.state === "error") {
-      connectionState.value =
-        nextSerialStatus.error_code === "SERIAL_DEVICE_DISCONNECTED"
-          ? "device_lost"
-          : "error";
-      connectionMessage.value =
-        nextSerialStatus.detail || "串口连接异常";
-      errorMessage.value =
-        nextSerialStatus.detail || "串口连接异常，请重新连接";
-    } else {
-      connectionState.value = "disconnected";
-      connectionMessage.value = "未连接";
-    }
+    applySerialStatus(nextSerialStatus);
+    webSerialSupported.value = health.serial_supported;
   } catch (error) {
-    backendOnline.value = false;
     relayStatus.value = { ...emptyRelayStatus };
     serialStatus.value = { ...emptySerialStatus };
     connectionState.value = "error";
-    connectionMessage.value = "后端不可用";
+    connectionMessage.value = "状态读取失败";
     errorMessage.value = getApiErrorMessage(error);
-  } finally {
-    statusRequestInFlight = false;
   }
 }
 
@@ -274,23 +281,19 @@ async function connect(): Promise<void> {
     return;
   }
 
+  manualDisconnect = false;
   activeOperation.value = "connect";
   const port = selectedPort.value;
   try {
     relayStatus.value = await connectRelay(port);
-    backendOnline.value = true;
     connectionState.value = "connected";
-    connectionMessage.value = `已连接 ${port}`;
+    connectionMessage.value = `已连接 ${relayStatus.value.port ?? port}`;
     errorMessage.value = "";
-    recordOperation("串口设备", "CONNECT", "—", `已连接 ${port}`, "success");
-    await refreshStatus(true);
-    await loadLogs();
+    await refreshStatus();
   } catch (error) {
     const message = getApiErrorMessage(error);
-    await refreshStatus(true);
+    await refreshStatus();
     showError(message);
-    recordOperation("串口设备", "CONNECT", "—", message, "failed");
-    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
@@ -302,28 +305,17 @@ async function disconnect(): Promise<void> {
   }
 
   activeOperation.value = "disconnect";
-  const port = relayStatus.value.port ?? selectedPort.value;
   try {
     relayStatus.value = await disconnectRelay();
-    backendOnline.value = true;
+    manualDisconnect = true;
     connectionState.value = "disconnected";
     connectionMessage.value = "未连接";
     errorMessage.value = "";
-    recordOperation(
-      "串口设备",
-      "DISCONNECT",
-      "—",
-      `已断开 ${port || "串口"}`,
-      "success",
-    );
-    await refreshStatus(true);
-    await loadLogs();
+    await refreshStatus();
   } catch (error) {
     const message = getApiErrorMessage(error);
-    await refreshStatus(true);
+    await refreshStatus();
     showError(message);
-    recordOperation("串口设备", "DISCONNECT", "—", message, "failed");
-    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
@@ -337,46 +329,35 @@ async function runRelayAction(
     return;
   }
 
-  const commandHex = actionName === "ON" ? "A0 01 01 A2" : "A0 01 00 A1";
   activeOperation.value = actionName === "ON" ? "on" : "off";
-  recordOperation("Relay 1", actionName, commandHex, "发送中", "pending");
-
   try {
     const result = await request();
     relayStatus.value = result.status;
-    backendOnline.value = true;
     connectionState.value = "connected";
     connectionMessage.value = `已连接 ${result.status.port ?? ""}`.trim();
     errorMessage.value = "";
-    recordOperation(
-      "Relay 1",
-      actionName,
-      result.command,
-      result.message,
-      "success",
-    );
-    await loadLogs();
   } catch (error) {
     const message = getApiErrorMessage(error);
-    recordOperation("Relay 1", actionName, commandHex, message, "failed");
-    await refreshStatus(true);
+    await refreshStatus();
     showError(message);
-    await loadLogs();
   } finally {
     activeOperation.value = null;
   }
 }
 
 onMounted(async () => {
-  await Promise.all([loadPorts(), refreshStatus(), loadLogs()]);
-  statusTimer = window.setInterval(() => {
-    void refreshStatus();
-  }, 2500);
+  await initApp();
+  refreshAppConfig();
+  await Promise.all([loadPorts(), refreshStatus()]);
+  portsPollTimer = window.setInterval(() => {
+    void loadPorts(true);
+  }, PORT_POLL_INTERVAL_MS);
 });
 
-onUnmounted(() => {
-  if (statusTimer !== undefined) {
-    window.clearInterval(statusTimer);
+onBeforeUnmount(() => {
+  if (portsPollTimer !== null) {
+    window.clearInterval(portsPollTimer);
+    portsPollTimer = null;
   }
 });
 </script>
@@ -387,9 +368,11 @@ onUnmounted(() => {
       <div class="topbar-title">
         <span class="brand-mark"><Connection /></span>
         <div>
-          <p class="section-label">LOCAL HARDWARE CONTROL</p>
-          <h1>USB Relay Control</h1>
-          <p class="topbar-subtitle">本机串口设备控制台</p>
+          <p class="section-label">本地硬件控制</p>
+          <h1>USB 继电器控制台</h1>
+          <p class="topbar-subtitle">
+            Web / 桌面串口控制 · 无需独立后端服务
+          </p>
         </div>
       </div>
       <div class="topbar-summary">
@@ -402,11 +385,20 @@ onUnmounted(() => {
           <strong>{{ currentDevice }}</strong>
         </div>
         <div class="backend-state">
-          <span>Backend</span>
-          <el-tag :type="backendTagType" effect="dark">
-            {{ backendLabel }}
+          <span>串口服务</span>
+          <el-tag :type="serialTagType" effect="dark">
+            {{ serialLabel }}
           </el-tag>
         </div>
+        <el-tooltip content="打开设备设置" placement="bottom">
+          <el-button
+            class="settings-btn"
+            :icon="Setting"
+            circle
+            aria-label="打开设备设置"
+            @click="settingsVisible = true"
+          />
+        </el-tooltip>
       </div>
     </header>
 
@@ -415,6 +407,17 @@ onUnmounted(() => {
       <div>
         <strong>操作失败</strong>
         <p>{{ errorMessage }}</p>
+      </div>
+    </section>
+
+    <section v-if="!webSerialSupported" class="error-banner" role="alert">
+      <WarningFilled class="error-icon" />
+      <div>
+        <strong>当前环境不支持串口控制</strong>
+        <p>
+          Web 版请使用 Chrome 或 Edge 89+ 并通过 https 或 localhost
+          访问；Windows 用户建议使用桌面版安装包。
+        </p>
       </div>
     </section>
 
@@ -427,18 +430,21 @@ onUnmounted(() => {
         :scanning="scanning"
         :connection-state="connectionState"
         :connection-message="connectionMessage"
+        :detected-relay-port="detectedRelayPort"
+        :serial-options="appConfig.relay.serial"
         :active-operation="
           activeOperation === 'connect' || activeOperation === 'disconnect'
             ? activeOperation
             : null
         "
-        @refresh="loadPorts"
+        @refresh="requestNewPort"
         @connect="connect"
         @disconnect="disconnect"
       />
 
       <RelayCard
         :status="relayStatus"
+        :channel="appConfig.relay.currentChannel"
         :active-operation="
           activeOperation === 'on' || activeOperation === 'off'
             ? activeOperation
@@ -449,47 +455,11 @@ onUnmounted(() => {
       />
     </main>
 
-    <section
-      class="operation-result"
-      :class="`operation-${lastOperation.status}`"
-      aria-live="polite"
-    >
-      <header class="operation-header">
-        <p class="section-label">最近一次操作</p>
-        <el-tag :type="operationTagType" effect="dark" size="small">
-          {{ operationStatusLabel }}
-        </el-tag>
-      </header>
-      <dl class="operation-fields">
-        <div>
-          <dt>时间</dt>
-          <dd>{{ lastOperation.time }}</dd>
-        </div>
-        <div>
-          <dt>对象</dt>
-          <dd>{{ lastOperation.target }}</dd>
-        </div>
-        <div>
-          <dt>动作</dt>
-          <dd>{{ lastOperation.action }}</dd>
-        </div>
-        <div>
-          <dt>命令</dt>
-          <dd><code>{{ lastOperation.commandHex }}</code></dd>
-        </div>
-        <div class="operation-message">
-          <dt>结果</dt>
-          <dd>{{ lastOperation.result }}</dd>
-        </div>
-      </dl>
-    </section>
-
-    <OperationLog
-      :entries="auditLogs"
-      :loading="logsLoading"
-      :clearing="logsClearing"
-      @refresh="loadLogs"
-      @clear="clearOperationLogs"
+    <SettingsPanel
+      v-model:visible="settingsVisible"
+      v-model:selected-port="selectedPort"
+      :ports="ports"
+      @saved="refreshAppConfig"
     />
   </div>
 </template>

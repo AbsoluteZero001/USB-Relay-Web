@@ -1,17 +1,19 @@
 import { createApp } from "vue";
 import {
   ElButton,
+  ElDialog,
+  ElDivider,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElInputNumber,
   ElOption,
   ElSelect,
+  ElSwitch,
   ElTag,
   ElTooltip,
 } from "element-plus";
-import "element-plus/theme-chalk/base.css";
-import "element-plus/theme-chalk/el-button.css";
-import "element-plus/theme-chalk/el-option.css";
-import "element-plus/theme-chalk/el-select.css";
-import "element-plus/theme-chalk/el-tag.css";
-import "element-plus/theme-chalk/el-tooltip.css";
+import "element-plus/dist/index.css";
 
 import App from "./App.vue";
 import "./styles.css";
@@ -19,8 +21,15 @@ import "./styles.css";
 const app = createApp(App);
 
 app.use(ElButton);
+app.use(ElDialog);
+app.use(ElDivider);
+app.use(ElForm);
+app.use(ElFormItem);
+app.use(ElInput);
+app.use(ElInputNumber);
 app.use(ElOption);
 app.use(ElSelect);
+app.use(ElSwitch);
 app.use(ElTag);
 app.use(ElTooltip);
 
