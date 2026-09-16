@@ -6,7 +6,6 @@ import {
   getAppConfig,
   updateAppConfig,
   type AppConfig,
-  type SerialPortInfo,
 } from "../api/relay";
 import {
   formatHexBytes,
@@ -20,13 +19,11 @@ import type {
 
 const props = defineProps<{
   visible: boolean;
-  ports: SerialPortInfo[];
   selectedPort: string;
 }>();
 
 const emit = defineEmits<{
   "update:visible": [value: boolean];
-  "update:selectedPort": [value: string];
   saved: [];
 }>();
 
@@ -54,7 +51,6 @@ const flowControlOptions: { value: FlowControl; label: string }[] = [
 ];
 
 const form = reactive<AppConfig>(getAppConfig());
-const selectedPortValue = ref(props.selectedPort);
 const onCommandHex = ref(formatHexBytes(form.relay.onCommand));
 const offCommandHex = ref(formatHexBytes(form.relay.offCommand));
 
@@ -63,18 +59,8 @@ watch(
   (visible) => {
     if (visible) {
       Object.assign(form, getAppConfig());
-      selectedPortValue.value = props.selectedPort;
       onCommandHex.value = formatHexBytes(form.relay.onCommand);
       offCommandHex.value = formatHexBytes(form.relay.offCommand);
-    }
-  },
-);
-
-watch(
-  () => props.selectedPort,
-  (value) => {
-    if (props.visible) {
-      selectedPortValue.value = value;
     }
   },
 );
@@ -124,11 +110,10 @@ async function handleSave(): Promise<void> {
   );
   form.relay.onCommand = onBytes;
   form.relay.offCommand = offBytes;
-  form.selectedPort = selectedPortValue.value || null;
+  form.selectedPort = props.selectedPort || null;
 
   try {
     const result = await updateAppConfig({ ...form });
-    emit("update:selectedPort", selectedPortValue.value);
     emit("saved");
     emit("update:visible", false);
 
@@ -165,20 +150,6 @@ function handleClose(): void {
     <el-form label-width="104px" label-position="left">
       <el-divider content-position="left">串口参数</el-divider>
       <div class="settings-parameter-grid">
-        <el-form-item label="串口" class="parameter-wide">
-          <el-select
-            v-model="selectedPortValue"
-            placeholder="选择串口"
-            filterable
-          >
-            <el-option
-              v-for="port in ports"
-              :key="port.port"
-              :label="`${port.port} · ${port.description}`"
-              :value="port.port"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item label="波特率">
           <el-select v-model="form.relay.serial.baudRate">
             <el-option

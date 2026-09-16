@@ -161,8 +161,11 @@ async function autoConnectDetectedPort(port: string): Promise<void> {
   }
 }
 
-async function loadPorts(background = false): Promise<void> {
-  if (portScanInFlight || scanning.value) {
+async function loadPorts(
+  background = false,
+  force = false,
+): Promise<void> {
+  if (portScanInFlight || (scanning.value && !force)) {
     return;
   }
 
@@ -170,30 +173,12 @@ async function loadPorts(background = false): Promise<void> {
   if (!background) {
     scanning.value = true;
   }
-  const previousSelection = selectedPort.value;
   try {
     const nextPorts = await listSerialPorts();
     ports.value = nextPorts;
     const preferredPort =
       findMatchingPort(nextPorts, appConfig.value.deviceRules)?.port.port ?? null;
-    const configuredPort = appConfig.value.selectedPort;
-    const configuredPortExists =
-      !!configuredPort &&
-      nextPorts.some((port) => port.port === configuredPort);
-
-    const previousStillExists = nextPorts.some(
-      (port) => port.port === previousSelection,
-    );
-
-    if (!previousSelection) {
-      selectedPort.value =
-        (configuredPortExists ? configuredPort : null) ??
-        preferredPort ??
-        nextPorts[0]?.port ??
-        "";
-    } else if (!previousStillExists) {
-      selectedPort.value = preferredPort ?? "";
-    }
+    selectedPort.value = preferredPort ?? "";
 
     if (!preferredPort) {
       manualDisconnect = false;
@@ -229,9 +214,12 @@ async function requestNewPort(): Promise<void> {
   }
   scanning.value = true;
   try {
-    const added = await requestSerialPort();
-    await loadPorts();
-    selectedPort.value = added.port;
+    await requestSerialPort();
+    await loadPorts(false, true);
+    if (!selectedPort.value) {
+      showError("未检测到支持的 USB 继电器设备");
+      return;
+    }
     errorMessage.value = "";
   } catch (error) {
     // User cancelled the picker — not a real error, just ignore silently
@@ -247,9 +235,6 @@ async function requestNewPort(): Promise<void> {
 
 function refreshAppConfig(): void {
   appConfig.value = getAppConfig();
-  if (appConfig.value.selectedPort) {
-    selectedPort.value = appConfig.value.selectedPort;
-  }
   manualDisconnect = false;
   void refreshStatus();
   void loadPorts(true);
@@ -277,7 +262,7 @@ async function refreshStatus(): Promise<void> {
 async function connect(): Promise<void> {
   if (operationInProgress.value || !selectedPort.value) {
     if (!selectedPort.value) {
-      showError("请先选择串口");
+      showError("未检测到 USB 继电器，请确认设备已插入");
     }
     return;
   }
@@ -424,7 +409,6 @@ onBeforeUnmount(() => {
 
     <main class="dashboard-grid">
       <SerialPanel
-        v-model:selected-port="selectedPort"
         :ports="ports"
         :connected-port="relayStatus.port"
         :connected="relayStatus.connected"
@@ -458,8 +442,7 @@ onBeforeUnmount(() => {
 
     <SettingsPanel
       v-model:visible="settingsVisible"
-      v-model:selected-port="selectedPort"
-      :ports="ports"
+      :selected-port="selectedPort"
       @saved="refreshAppConfig"
     />
   </div>

@@ -14,7 +14,6 @@ type SerialConnectionState =
 
 const props = defineProps<{
   ports: SerialPortInfo[];
-  selectedPort: string;
   connectedPort: string | null;
   connected: boolean;
   scanning: boolean;
@@ -26,25 +25,25 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  "update:selectedPort": [value: string];
   refresh: [];
   connect: [];
   disconnect: [];
 }>();
 
-const selectedPortInfo = computed(
-  () => props.ports.find((port) => port.port === props.selectedPort) ?? null,
+const detectedPortInfo = computed(
+  () =>
+    props.ports.find((port) => port.port === props.detectedRelayPort) ?? null,
 );
 
 const displayPort = computed(
-  () => props.connectedPort || props.selectedPort || "未选择",
+  () => props.connectedPort || props.detectedRelayPort || "未检测到",
 );
 
 const runningInDesktop = Boolean(window.desktopAPI?.serial);
-const scanButtonLabel = runningInDesktop ? "扫描串口" : "添加串口";
+const scanButtonLabel = runningInDesktop ? "重新检测" : "授权串口";
 const scanButtonTooltip = runningInDesktop
-  ? "重新扫描电脑上的串口设备"
-  : "选择并授权浏览器可使用的串口设备";
+  ? "立即重新检测继电器设备"
+  : "授权浏览器访问 USB 串口设备";
 
 const relayDetectionText = computed(() =>
   props.detectedRelayPort
@@ -101,20 +100,6 @@ const stateTagType = computed<"success" | "danger" | "info">(() => {
   return "info";
 });
 
-function handlePortChange(value: string): void {
-  emit("update:selectedPort", value);
-}
-
-function portLabel(port: SerialPortInfo): string {
-  const current = port.is_current || port.port === props.connectedPort;
-  const labels = [
-    port.port,
-    port.description,
-    port.port === props.detectedRelayPort ? "已识别继电器" : "",
-    current ? "当前设备" : "",
-  ].filter(Boolean);
-  return labels.join(" · ");
-}
 </script>
 
 <template>
@@ -130,36 +115,27 @@ function portLabel(port: SerialPortInfo): string {
     </header>
 
     <div class="field-group">
-      <label for="serial-port">串口设备</label>
+      <label>设备探测</label>
       <div class="port-row">
-        <el-select
-          id="serial-port"
-          :model-value="selectedPort"
-          placeholder="选择串口"
-          :disabled="connected || busy"
-          filterable
-          class="port-select"
-          @update:model-value="handlePortChange"
+        <div
+          class="detected-port"
+          :class="{ detected: !!detectedRelayPort }"
         >
-          <el-option
-            v-if="ports.length === 0"
-            disabled
-            label="未发现可用串口"
-            value=""
-          />
-          <el-option
-            v-for="port in ports"
-            :key="port.port"
-            :label="portLabel(port)"
-            :value="port.port"
-          />
-        </el-select>
+          <Connection />
+          <span>
+            {{
+              detectedRelayPort
+                ? `已自动识别 ${detectedRelayPort}`
+                : "等待插入 USB 继电器"
+            }}
+          </span>
+        </div>
         <el-tooltip :content="scanButtonTooltip" placement="top">
           <el-button
             :icon="Refresh"
             :loading="scanning"
             :disabled="busy || scanning"
-            aria-label="刷新串口列表"
+            aria-label="重新检测继电器设备"
             @click="emit('refresh')"
           >
             {{ scanButtonLabel }}
@@ -195,7 +171,7 @@ function portLabel(port: SerialPortInfo): string {
       </div>
       <div>
         <dt>型号</dt>
-        <dd>{{ selectedPortInfo?.description || "—" }}</dd>
+        <dd>{{ detectedPortInfo?.description || "—" }}</dd>
       </div>
       <div class="meta-wide">
         <dt>状态</dt>
@@ -203,7 +179,7 @@ function portLabel(port: SerialPortInfo): string {
       </div>
       <div class="meta-wide">
         <dt>制造商</dt>
-        <dd>{{ selectedPortInfo?.manufacturer || "—" }}</dd>
+        <dd>{{ detectedPortInfo?.manufacturer || "—" }}</dd>
       </div>
     </dl>
 
@@ -213,7 +189,7 @@ function portLabel(port: SerialPortInfo): string {
         type="primary"
         :icon="Connection"
         :loading="activeOperation === 'connect'"
-        :disabled="!selectedPort"
+        :disabled="!detectedRelayPort"
         @click="emit('connect')"
       >
         连接
@@ -229,3 +205,31 @@ function portLabel(port: SerialPortInfo): string {
     </div>
   </section>
 </template>
+
+<style scoped>
+.detected-port {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 1px solid rgba(143, 160, 158, 0.28);
+  border-radius: 8px;
+  color: #8fa09e;
+  background: rgba(16, 23, 26, 0.42);
+}
+
+.detected-port.detected {
+  border-color: rgba(64, 194, 133, 0.55);
+  color: #76dcae;
+}
+
+.detected-port span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>
