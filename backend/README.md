@@ -35,10 +35,14 @@ app/
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --port 8000
+python app\main.py
 ```
 
 Swagger：<http://127.0.0.1:8000/docs>
+
+`app\main.py` 的直接入口使用单进程 Uvicorn 并禁用自动重载。项目控制真实
+USB 继电器，`--reload` 会产生监控子进程并重新导入应用，可能重复初始化
+`SerialService`，因此不作为本项目推荐启动方式。
 
 ## API
 

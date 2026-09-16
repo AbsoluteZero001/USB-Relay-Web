@@ -150,16 +150,21 @@ error
 
 ```powershell
 cd D:\GitHub\USB-Relay-Web\backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --port 8000
+if (-not (Test-Path .venv\Scripts\python.exe)) {
+    python -m venv .venv
+}
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app\main.py
 ```
 
 启动后可访问：
 
 - Swagger：<http://127.0.0.1:8000/docs>
 - OpenAPI JSON：<http://127.0.0.1:8000/openapi.json>
+
+后端直接入口固定监听 `127.0.0.1:8000` 并关闭 Uvicorn 自动重载。真实 USB
+继电器场景下不建议使用 `--reload`，因为 reloader 会创建子进程并重新导入
+应用，可能重复初始化串口服务。
 
 如果 PowerShell 阻止激活脚本，可以只对当前终端放行：
 
