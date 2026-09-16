@@ -418,6 +418,18 @@ button {
   margin-top: 1px;
 }
 
+.el-message.relay-connect-error {
+  color: #b43d36;
+  background: #fff5f4;
+  border: 1px solid #dc5b52;
+  box-shadow: 0 8px 24px rgb(180 61 54 / 16%);
+}
+
+.el-message.relay-connect-error .el-message__content {
+  color: inherit;
+  font-weight: 700;
+}
+
 .relay-hero {
   display: flex;
   flex-direction: column;

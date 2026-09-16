@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { Connection, Setting, WarningFilled } from "@element-plus/icons-vue";
-import { ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 
 import {
   connectRelay,
@@ -263,14 +263,13 @@ async function refreshStatus(): Promise<void> {
 async function connect(): Promise<void> {
   if (operationInProgress.value || !selectedPort.value) {
     if (!selectedPort.value) {
-      await ElMessageBox.alert(
-        "没有识别到串口设备，请确认 USB 继电器已插入并安装驱动。",
-        "无法连接",
-        {
-          confirmButtonText: "知道了",
-          type: "warning",
-        },
-      );
+      ElMessage({
+        message: "没有识别到串口设备，请确认 USB 继电器已插入并安装驱动。",
+        type: "error",
+        customClass: "relay-connect-error",
+        grouping: false,
+        duration: 3000,
+      });
     }
     return;
   }
