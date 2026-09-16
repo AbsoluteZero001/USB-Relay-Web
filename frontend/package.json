@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist-electron/main/index.js",
   "description": "USB Relay Console — Web + Electron (Node SerialPort) desktop app",
+  "author": "AbsoluteZero001",
   "scripts": {
     "dev": "vite",
     "typecheck": "vue-tsc --noEmit",
@@ -61,7 +62,7 @@
           ]
         }
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
     },
     "nsis": {
       "oneClick": false,
