@@ -27,22 +27,31 @@ app/
     └── exceptions.py           可安全映射到 HTTP 的服务异常
 ```
 
-## 启动
+## 一键启动
 
-在 `backend` 目录执行：
+首次在 `backend` 目录安装依赖：
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+```
+
+前端依赖也已安装后，以后只需运行：
+
+```powershell
 python app\main.py
 ```
 
+该入口会同时启动或复用 FastAPI `127.0.0.1:8000` 和 Vite
+`127.0.0.1:5173`，待服务就绪后自动打开浏览器。
+
 Swagger：<http://127.0.0.1:8000/docs>
 
-`app\main.py` 的直接入口使用单进程 Uvicorn 并禁用自动重载。项目控制真实
-USB 继电器，`--reload` 会产生监控子进程并重新导入应用，可能重复初始化
-`SerialService`，因此不作为本项目推荐启动方式。
+`app\main.py` 使用单进程 Uvicorn 并禁用自动重载。项目控制真实 USB
+继电器，`--reload` 会产生监控子进程并重新导入应用，可能重复初始化
+`SerialService`，因此不作为本项目推荐启动方式。按 `Ctrl+C` 会停止本次
+启动创建的 Vite，并触发 FastAPI shutdown。
 
 ## API
 

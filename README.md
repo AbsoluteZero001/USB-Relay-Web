@@ -144,9 +144,9 @@ error
 - CH340 驱动
 - 已确认端口号，例如 `COM3`
 
-## 启动后端
+## 一键启动开发环境
 
-在 PowerShell 中执行：
+首次准备依赖：
 
 ```powershell
 cd D:\GitHub\USB-Relay-Web\backend
@@ -154,37 +154,30 @@ if (-not (Test-Path .venv\Scripts\python.exe)) {
     python -m venv .venv
 }
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+cd D:\GitHub\USB-Relay-Web\frontend
+npm install
+```
+
+以后只需要在 PyCharm 中运行 `backend/app/main.py`，或执行：
+
+```powershell
+cd D:\GitHub\USB-Relay-Web\backend
 .\.venv\Scripts\python.exe app\main.py
 ```
 
-启动后可访问：
+启动入口会：
 
-- Swagger：<http://127.0.0.1:8000/docs>
-- OpenAPI JSON：<http://127.0.0.1:8000/openapi.json>
+- 启动或复用 `127.0.0.1:8000` 上的 FastAPI。
+- 启动或复用 `127.0.0.1:5173` 上的 Vite。
+- 等待两个服务就绪后自动打开 <http://localhost:5173>。
+- 按 `Ctrl+C` 时停止本次启动创建的 Vite，并正常关闭 FastAPI。
 
-后端直接入口固定监听 `127.0.0.1:8000` 并关闭 Uvicorn 自动重载。真实 USB
-继电器场景下不建议使用 `--reload`，因为 reloader 会创建子进程并重新导入
-应用，可能重复初始化串口服务。
+Swagger：<http://127.0.0.1:8000/docs>
 
-如果 PowerShell 阻止激活脚本，可以只对当前终端放行：
+OpenAPI JSON：<http://127.0.0.1:8000/openapi.json>
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-然后重新执行激活命令。
-
-## 启动前端
-
-另开一个 PowerShell：
-
-```powershell
-cd D:\GitHub\USB-Relay-Web\frontend
-npm install
-npm run dev
-```
-
-访问 <http://127.0.0.1:5173>。
+后端固定关闭 Uvicorn 自动重载。真实 USB 继电器场景下不使用 `--reload`，
+避免 reloader 创建子进程并重复初始化串口服务。
 
 前端默认请求 `http://127.0.0.1:8000/api`。如需修改，可在 `frontend/.env` 中设置：
 
@@ -307,7 +300,8 @@ npx --yes pyright@latest
 - CH340 必须已安装正确驱动；设备管理器中应能看到对应 COM 端口。
 - 同一个 COM 口在同一时间只能由一个程序打开。运行本服务前先关闭 SSCOM、Arduino 串口监视器等程序，否则会返回端口占用错误。
 - COM 号由 Windows 分配，更换 USB 口后可能改变。项目通过扫描动态发现端口，不把 `COM3` 写死为唯一设备。
-- 后端必须在 `backend` 目录启动，否则 `app.main:app` 无法导入。
+- `backend/app/main.py` 会动态定位项目根目录和 `frontend`，不依赖启动时
+  所在的当前工作目录。
 - 页面显示 `UNKNOWN` 是预期行为，因为当前协议没有状态回读。只有在本次连接中成功发送 ON/OFF 后，软件状态才会变为 `ON/OFF`。
 - 拔掉 USB 后在下次通信时服务会捕获异常并清理失效连接；重新插入设备后需刷新端口并再次连接。
 - 关闭浏览器不会发送 OFF，也不会恢复上次 ON；需要关闭继电器时应点击页面中的“关闭继电器 / OFF”。
