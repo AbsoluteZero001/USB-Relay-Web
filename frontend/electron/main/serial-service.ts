@@ -1,11 +1,6 @@
-import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
-
-// serialport is a CJS native module. Load it via createRequire so that its
-// internal __dirname-based binding resolution works correctly under ESM.
-const require = createRequire(import.meta.url);
-const { SerialPort } = require("serialport") as typeof import("serialport");
-type PortInfo = import("serialport").PortInfo;
+import { SerialPort } from "serialport";
+import type { PortInfo } from "@serialport/bindings-interface";
 
 import type {
   SerialOpenOptions,

@@ -1,11 +1,7 @@
-import { createRequire } from "node:module";
 import { app } from "electron";
+import Store from "electron-store";
 import type { AppConfig } from "../../src/services/config/types";
 import { DEFAULT_CONFIG } from "../../src/services/config/types";
-
-// electron-store is a CJS module; load via createRequire under ESM.
-const require = createRequire(import.meta.url);
-const Store = require("electron-store") as typeof import("electron-store").default;
 
 /**
  * Persistent configuration store for the Electron desktop version.
